@@ -4,7 +4,9 @@ import httpx
 import pytest
 
 from proxy.backends import NativeBackend, OpenRouterBackend
-from tests.test_translate import cfg  # noqa: F401
+from proxy.app import create_app
+from fastapi.testclient import TestClient
+from tests.test_translate import cfg, make_wav  # noqa: F401
 
 
 @pytest.mark.parametrize("connect", [True, False])
@@ -37,3 +39,26 @@ def test_warmup_uses_configured_assembly_model(cfg):
         await backend.aclose()
     asyncio.run(run())
     assert seen == ["Zyntrabox"]
+
+
+@pytest.mark.parametrize("provider", ["openrouter", "assemblyai", "azure"])
+@pytest.mark.parametrize("failure", ["timeout", "http", "parse"])
+def test_failed_request_keeps_observed_connection(cfg, provider, failure):
+    async def handler(request):
+        await request.extensions["trace"]("connection.connect_tcp.started", {})
+        if failure == "timeout":
+            raise httpx.ReadTimeout("Zyntrabox")
+        return httpx.Response(502 if failure == "http" else 200, json={})
+
+    transport = httpx.MockTransport(handler)
+    cfg["notifications"]["enabled"] = False
+    if provider == "openrouter":
+        backend, name = OpenRouterBackend(cfg, "k", transport), "gpt"
+    else:
+        backend = NativeBackend(cfg, {"assemblyai": "k", "azure": "k", "azure_region": "Zyntrabox"}, transport)
+        name = "assembly" if provider == "assemblyai" else "mai-clean"
+        cfg["routes"][name]["backend"] = "native"
+    with TestClient(create_app(cfg, backends={backend.name: backend}), base_url="http://127.0.0.1:18765") as c:
+        response = c.post("/v1/audio/transcriptions", data={"model": name}, files={"file": ("x.wav", make_wav())})
+        assert response.status_code in (502, 504)
+        assert c.app.state.db._conn.execute("SELECT new_connection FROM requests").fetchone() == (1,)

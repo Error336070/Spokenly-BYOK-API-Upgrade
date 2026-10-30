@@ -15,11 +15,13 @@ from .translate import (build_native_payload, build_openrouter_body, build_openr
 class BackendError(Exception):
     """status is the HTTP status the proxy returns; detail is the full error kept for the local log."""
 
-    def __init__(self, message: str, status: int = 502, detail: str = "", upstream_status: int | None = None):
+    def __init__(self, message: str, status: int = 502, detail: str = "", upstream_status: int | None = None,
+                 new_connection: bool | None = None):
         super().__init__(message)
         self.status = status
         self.detail = detail or message
         self.upstream_status = upstream_status
+        self.new_connection = new_connection
 
 
 def build_backends(cfg: dict, env) -> dict:
@@ -53,11 +55,12 @@ def _error_message(r: httpx.Response) -> str:
     return str(err or j)[:300]
 
 
-def _parse(parser, data, label):
+def _parse(parser, data, label, connection_info):
     try:
         return parser(data)
     except (ValueError, TypeError, AttributeError, KeyError) as e:
-        raise BackendError(f"{label} returned an unreadable response: {e}", 502, str(data)) from e
+        raise BackendError(f"{label} returned an unreadable response: {e}", 502, str(data),
+                           new_connection=connection_info.get("new_connection")) from e
 
 
 async def _within_deadline(awaitable, seconds):
@@ -93,18 +96,21 @@ async def _request(client: httpx.AsyncClient, label: str, cfg: dict, hints: dict
             method, url, timeout=httpx.Timeout(deadline, connect=t["connect_s"]), **kw), deadline)
     except (httpx.TimeoutException, asyncio.TimeoutError) as e:
         raise BackendError(f"{label} timed out after {time.perf_counter() - t0:.1f}s", 504,
-                           f"{type(e).__name__}: {e!r}") from e
+                           f"{type(e).__name__}: {e!r}", new_connection=connection_info.get("new_connection")) from e
     except httpx.HTTPError as e:
-        raise BackendError(f"{label} connection error: {type(e).__name__}", 502, repr(e)) from e
+        raise BackendError(f"{label} connection error: {type(e).__name__}", 502, repr(e),
+                           new_connection=connection_info.get("new_connection")) from e
     latency = (time.perf_counter() - t0) * 1000
     detail = f"HTTP {r.status_code} headers={dict(r.headers)} body={r.text}"
     if r.status_code != 200:
         raise BackendError(f"{label} HTTP {r.status_code}: {_error_message(r)}{hints.get(r.status_code, '')}",
-                           502, detail, upstream_status=r.status_code)
+                           502, detail, upstream_status=r.status_code,
+                           new_connection=connection_info.get("new_connection"))
     try:
         return r.json(), latency, r.headers
     except ValueError as e:
-        raise BackendError(f"{label} returned an unreadable response", 502, detail) from e
+        raise BackendError(f"{label} returned an unreadable response", 502, detail,
+                           new_connection=connection_info.get("new_connection")) from e
 
 
 _OPENROUTER_HINTS = {
@@ -151,7 +157,7 @@ class OpenRouterBackend:
         data, latency, headers = await _request(self.client, f"OpenRouter ({body['model']})", cfg,
                                                 _OPENROUTER_HINTS, "POST", "/audio/transcriptions",
                                                 audio_duration_s=audio_duration_s, connection_info=connection_info, **kw)
-        out = _parse(parse_openrouter_response, data, "OpenRouter")
+        out = _parse(parse_openrouter_response, data, "OpenRouter", connection_info)
         out["new_connection"] = connection_info.get("new_connection")
         out["provider_latency_ms"] = latency
         out["provider_model"] = body["model"]
@@ -233,7 +239,7 @@ class NativeBackend:
             headers={"Authorization": key, "X-AAI-Model": model},
             files={"audio": (f"audio.{fmt}", audio, _MIME.get(fmt, "application/octet-stream")),
                    "config": (None, json.dumps(config), "application/json")})
-        out = _parse(parse_assemblyai_response, data, "AssemblyAI")
+        out = _parse(parse_assemblyai_response, data, "AssemblyAI", connection_info)
         out.update(new_connection=connection_info.get("new_connection"), provider_latency_ms=latency, provider_model=f"assemblyai/{model}")
         return out
 
@@ -258,7 +264,7 @@ class NativeBackend:
             headers={"Ocp-Apim-Subscription-Key": key},
             files={"audio": (f"audio.{fmt}", audio, _MIME.get(fmt, "application/octet-stream")),
                    "definition": (None, json.dumps(definition), "application/json")})
-        out = _parse(parse_azure_response, data, "Azure Speech")
+        out = _parse(parse_azure_response, data, "Azure Speech", connection_info)
         out.update(new_connection=connection_info.get("new_connection"), provider_latency_ms=latency, provider_model=f"azure/{model}")
         return out
 
@@ -278,4 +284,3 @@ class NativeBackend:
     async def aclose(self):
         for c in self.clients.values():
             await c.aclose()
-

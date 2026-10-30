@@ -310,7 +310,8 @@ def create_app(cfg: dict, backends: dict | None = None, config_path: Path | None
                 log.exception("unexpected error in route %s", route_name)
                 e = BackendError(f"Dictation Proxy internal error: {type(e).__name__}: {e}", 500, repr(e))
             row["clip_path"] = await save_clip(audio, fmt, settings, failed_metadata)
-            row.update(status="error", http_status=e.status, error=e.detail, total_latency_ms=_ms(t0))
+            row.update(status="error", http_status=e.status, error=e.detail, total_latency_ms=_ms(t0),
+                       new_connection=e.new_connection)
             await db_write(app.state.db.insert, row)
             notifier.error(route_name, str(e), getattr(e, "upstream_status", None), route["backend"])
             log.error("route %s failed after %.0f ms: %s | %s", route_name, row["total_latency_ms"], e, e.detail)
