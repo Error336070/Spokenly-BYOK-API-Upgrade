@@ -50,6 +50,13 @@ def _error_message(r: httpx.Response) -> str:
     return str(err or j)[:300]
 
 
+def _parse(parser, data, label):
+    try:
+        return parser(data)
+    except (ValueError, TypeError, AttributeError, KeyError) as e:
+        raise BackendError(f"{label} returned an unreadable response: {e}", 502, str(data)) from e
+
+
 async def _request(client: httpx.AsyncClient, label: str, cfg: dict, hints: dict, method: str, url: str, **kw):
     """Send with the live timeout config; map every failure to a BackendError. Returns (json, latency_ms, headers)."""
     t = cfg["timeouts"]
@@ -112,10 +119,7 @@ class OpenRouterBackend:
             kw = {"json": body}
         data, latency, headers = await _request(self.client, f"OpenRouter ({body['model']})", self.cfg,
                                                 _OPENROUTER_HINTS, "POST", "/audio/transcriptions", **kw)
-        try:
-            out = parse_openrouter_response(data)
-        except AttributeError as e:
-            raise BackendError(f"OpenRouter ({body['model']}) returned an unreadable response", 502, str(data)) from e
+        out = _parse(parse_openrouter_response, data, "OpenRouter")
         out["provider_latency_ms"] = latency
         out["provider_model"] = body["model"]
         out["generation_id"] = headers.get("x-generation-id")
@@ -179,7 +183,7 @@ class NativeBackend:
             headers={"Authorization": key, "X-AAI-Model": model},
             files={"audio": (f"audio.{fmt}", audio, _MIME.get(fmt, "application/octet-stream")),
                    "config": (None, json.dumps(config), "application/json")})
-        out = parse_assemblyai_response(data)
+        out = _parse(parse_assemblyai_response, data, "AssemblyAI")
         out.update(provider_latency_ms=latency, provider_model=f"assemblyai/{model}")
         return out
 
@@ -202,7 +206,7 @@ class NativeBackend:
             headers={"Ocp-Apim-Subscription-Key": key},
             files={"audio": (f"audio.{fmt}", audio, _MIME.get(fmt, "application/octet-stream")),
                    "definition": (None, json.dumps(definition), "application/json")})
-        out = parse_azure_response(data)
+        out = _parse(parse_azure_response, data, "Azure Speech")
         out.update(provider_latency_ms=latency, provider_model=f"azure/{model}")
         return out
 

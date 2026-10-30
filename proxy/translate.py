@@ -63,22 +63,31 @@ def build_native_payload(native: dict, vocabulary: list[str]) -> dict:
     return payload
 
 
+def _transcript_field(data: dict, key: str, expected):
+    if (not isinstance(data, dict) or data.get("error") is not None
+            or data.get("status") in ("error", "failed") or not isinstance(data.get(key), expected)):
+        raise ValueError("provider returned an error or no transcript field")
+    return data[key]
+
+
 def parse_assemblyai_response(data: dict) -> dict:
+    text = _transcript_field(data, "text", str)
     ms = data.get("audio_duration_ms")
-    return {"text": (data.get("text") or "").strip(), "seconds": ms / 1000 if ms else None, "language": None}
+    return {"text": text.strip(), "seconds": ms / 1000 if ms else None, "language": None}
 
 
 def parse_azure_response(data: dict) -> dict:
-    phrases = data.get("combinedPhrases") or []
-    text = " ".join((p.get("text") or "").strip() for p in phrases if p.get("text"))
+    phrases = _transcript_field(data, "combinedPhrases", list)
+    text = " ".join(_transcript_field(p, "text", str).strip() for p in phrases)
     ms = data.get("durationMilliseconds")
     return {"text": text.strip(), "seconds": ms / 1000 if ms else None, "language": None}
 
 
 def parse_openrouter_response(data: dict) -> dict:
+    text = _transcript_field(data, "text", str)
     usage = data.get("usage") or {}
     return {
-        "text": (data.get("text") or "").strip(),
+        "text": text.strip(),
         "cost": usage.get("cost"),
         "seconds": usage.get("seconds"),
         "language": data.get("language"),
