@@ -77,5 +77,8 @@ class Notifier:
     def background_error(self, name: str, message: str) -> None:
         self._notify(f"background-{name}", "Background task failed", f"{name}: {message}")
 
+    def low_credit(self, remaining: float) -> None:
+        self._notify("low-credit", "OpenRouter key credit is low", f"Remaining key budget: ${remaining:.2f}.")
+
     def config_error(self, message: str) -> None:
         self._notify("config", "config.yaml has an error; keeping the previous config", message)

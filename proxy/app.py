@@ -142,6 +142,21 @@ def create_app(cfg: dict, backends: dict | None = None, config_path: Path | None
                 background_failure("periodic_cleanup", e)
             await asyncio.sleep(6 * 3600)
 
+    async def check_credit():
+        while True:
+            try:
+                settings = cfg.get("credit", {})
+                backend = app.state.backends.get("openrouter")
+                if settings.get("enabled", True) and backend and hasattr(backend, "remaining_credit"):
+                    remaining = await backend.remaining_credit()
+                    if remaining is not None and remaining < settings.get("low_usd", 1):
+                        notifier.low_credit(remaining)
+                    elif remaining is None:
+                        log.info("OpenRouter remaining key credit is unknown or unlimited")
+            except Exception as e:
+                background_failure("check_credit", e)
+            await asyncio.sleep(cfg.get("credit", {}).get("interval_s", 14400))
+
     @asynccontextmanager
     async def lifespan(app):
         if backends is None:
@@ -154,6 +169,7 @@ def create_app(cfg: dict, backends: dict | None = None, config_path: Path | None
         app.state.notifier = notifier
         spawn(periodic_cleanup(), loop=True)
         spawn(keep_warm(), loop=True)
+        spawn(check_credit(), loop=True)
         if config_path:
             spawn(watch_config(), loop=True)
         yield

@@ -21,6 +21,13 @@ notifications:
   cooldown_s: 600         # at most one toast per kind (401/402/429/repeated/config) per 10 minutes
 language: en             # used when Spokenly sends no language
 
+credit:
+  enabled: true          # GET OpenRouter /key at startup and periodically; no transcription charge
+  interval_s: 14400      # check every 4 hours
+  low_usd: 1             # toast below this remaining key budget; null/unlimited is unknown
+  assemblyai_hourly_rate_usd: null # set your rate for the stats estimate; no price is assumed
+  assemblyai_starting_credit_usd: null # set your initial credit; estimate subtracts retained successful usage
+
 timeouts:
   connect_s: 5
   request_s: 15          # minimum total provider deadline, including upload and response body

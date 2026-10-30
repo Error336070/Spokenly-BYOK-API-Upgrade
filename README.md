@@ -196,8 +196,15 @@ The proxy reads three files. It reloads `config.yaml` and `vocabulary.txt` withi
 | `logging.retention_days` | `7` | age at which recordings, log rows and log files are deleted |
 | `notifications.consecutive_errors` | `3` | failures in a row before a notification |
 | `routes.<name>.backend` | `openrouter` | `openrouter` or `native` |
+| `credit.enabled` | `true` | check OpenRouter key credit at startup and periodically |
+| `credit.interval_s` | `14400` | seconds between credit checks |
+| `credit.low_usd` | `1` | toast below this remaining key budget |
+| `credit.assemblyai_hourly_rate_usd` | `null` | set your hourly rate to enable usage estimates in stats |
+| `credit.assemblyai_starting_credit_usd` | `null` | starting credit for the estimated remaining credit |
 
 Each route has an `openrouter:` block and can have a `native:` block. They hold the model, any extra request fields, and how to send the vocabulary (`vocab_path`, `vocab_max`, `vocab_join`, `vocab_template`).
+
+Credit checks use OpenRouter's [GET /key](https://openrouter.ai/docs/api/api-reference/api-keys/get-current-api-key) and `data.limit_remaining`, or `limit - usage` when both are numbers. Unlimited or missing values mean unknown. This is the key budget, not the account balance. Stats reports audio minutes and cost coverage per backend. AssemblyAI estimates use retained successful native rows, the configured hourly rate and starting credit. Retention, filters, missing durations and use outside this proxy make those estimates incomplete. Native request costs remain null.
 
 </details>
 

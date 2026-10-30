@@ -1,6 +1,7 @@
 """Provider backends. Each keeps pooled keep-alive HTTP clients."""
 import asyncio
 import json
+import math
 import time
 
 import httpx
@@ -58,6 +59,20 @@ def _parse(parser, data, label):
         raise BackendError(f"{label} returned an unreadable response: {e}", 502, str(data)) from e
 
 
+async def _within_deadline(awaitable, seconds):
+    # asyncio.wait_for can lose external cancellation on Python 3.10 when the request finishes at once.
+    task = asyncio.create_task(awaitable)
+    try:
+        done, _ = await asyncio.wait({task}, timeout=seconds)
+        if not done:
+            raise asyncio.TimeoutError()
+        return task.result()
+    finally:
+        if not task.done():
+            task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+
 async def _request(client: httpx.AsyncClient, label: str, cfg: dict, hints: dict, method: str, url: str, audio_duration_s: float | None = None, connection_info: dict | None = None, **kw):
     """Send with the live timeout config; map every failure to a BackendError. Returns (json, latency_ms, headers)."""
     connection_info = connection_info if connection_info is not None else {}
@@ -73,7 +88,7 @@ async def _request(client: httpx.AsyncClient, label: str, cfg: dict, hints: dict
     deadline = max(t["request_s"], t.get("base_s", 10) + t.get("per_audio_second_s", 0.15) * (audio_duration_s or 0))
     t0 = time.perf_counter()
     try:
-        r = await asyncio.wait_for(client.request(
+        r = await _within_deadline(client.request(
             method, url, timeout=httpx.Timeout(deadline, connect=t["connect_s"]), **kw), deadline)
     except (httpx.TimeoutException, asyncio.TimeoutError) as e:
         raise BackendError(f"{label} timed out after {time.perf_counter() - t0:.1f}s", 504,
@@ -148,6 +163,19 @@ class OpenRouterBackend:
             return r.json().get("data") if r.status_code == 200 else None
         except (httpx.HTTPError, ValueError):
             return None
+
+    async def remaining_credit(self) -> float | None:
+        if not self.has_key:
+            return None
+        data, _, _ = await _request(self.client, "OpenRouter key info", self.cfg, _OPENROUTER_HINTS,
+                                    "GET", "/key")
+        data = data.get("data") if isinstance(data, dict) else None
+        if not isinstance(data, dict):
+            raise BackendError("OpenRouter key info has no data object")
+        remaining = data.get("limit_remaining")
+        if remaining is None and all(type(data.get(k)) in (int, float) for k in ("limit", "usage")):
+            remaining = data["limit"] - data["usage"]
+        return remaining if type(remaining) in (int, float) and math.isfinite(remaining) else None
 
     async def warmup(self) -> None:
         await self.generation("warmup")

@@ -26,13 +26,35 @@ def fmt(v, unit=""):
     return "-" if v is None else f"{v:.0f}{unit}"
 
 
+def usage_summary(rows, cfg):
+    lines = []
+    for backend in sorted({r["backend"] for r in rows}):
+        ok = [r for r in rows if r["backend"] == backend and r["status"] == "ok"]
+        seconds = sum(r["audio_duration_s"] or 0 for r in ok)
+        known = sum(r["cost"] is not None for r in ok)
+        lines.append(f"{backend}: {seconds / 60:.2f} audio minutes; cost coverage {known}/{len(ok)} successful requests")
+    settings = cfg.get("credit", {})
+    rate, starting = settings.get("assemblyai_hourly_rate_usd"), settings.get("assemblyai_starting_credit_usd")
+    seconds = sum(r["audio_duration_s"] or 0 for r in rows if r["status"] == "ok"
+                  and r["backend"] == "native" and (r["provider_model"] or "").startswith("assemblyai/"))
+    if rate is None:
+        lines.append("AssemblyAI credit estimate unavailable; set credit.assemblyai_hourly_rate_usd.")
+    else:
+        used = seconds / 3600 * rate
+        remaining = f"${starting - used:.4f}" if starting is not None else "unknown"
+        lines.append(f"AssemblyAI estimated credit used ${used:.4f}; estimated remaining {remaining}.")
+    lines.append("Estimates cover retained successful rows in this selection only. Deleted rows, missing durations and outside usage are excluded.")
+    return "\n".join(lines)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--since", default="", help="ISO date/time prefix filter, e.g. 2026-10-29")
     ap.add_argument("--errors", type=int, default=5, help="show the last N errors")
     args = ap.parse_args()
 
-    db = sqlite3.connect(load_config()["logging"]["db_path"])
+    cfg = load_config()
+    db = sqlite3.connect(cfg["logging"]["db_path"])
     db.row_factory = sqlite3.Row
     rows = db.execute("SELECT * FROM requests WHERE ts >= ? ORDER BY id", (args.since,)).fetchall()
     if not rows:
@@ -57,7 +79,7 @@ def main():
               f"{fmt(pct([r['total_latency_ms'] for r in ok], 50)):>9} "
               f"{fmt(pct([r['total_latency_ms'] for r in ok], 90)):>9} "
               f"{('$%.5f' % statistics.mean(costs)) if costs else '-':>9}  {', '.join(providers)}")
-    print("\nprov = proxy -> provider round trip (upload + processing); OR = OpenRouter-reported latency;")
+    print("\nprov = provider round trip (upload + processing); OR = OpenRouter-reported latency;")
     print("overhead = prov - OR (network/upload/routing outside the model). All in ms.")
 
     print("\nRecent provider requests, with seconds since the previous request start in that backend/provider:")
@@ -70,6 +92,8 @@ def main():
         fresh = r["new_connection"] if "new_connection" in r.keys() else None
         connections.append(f"  {r['ts']} {r['route']:12} gap {fmt(gap, 's'):>6} new TCP {fresh if fresh is not None else 'unknown'}")
     print("\n".join(connections[-20:]))
+
+    print("\n" + usage_summary(rows, cfg))
 
     errors = [r for r in rows if r["status"] == "error"][-args.errors:]
     if errors:

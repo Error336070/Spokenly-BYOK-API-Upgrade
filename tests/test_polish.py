@@ -81,6 +81,7 @@ def test_keep_warm_only_while_active(cfg):  # noqa: F811
 
 def test_vocabulary_file_merged_and_hot_reloaded(tmp_path):
     raw = yaml.safe_load((ROOT / "config.yaml").read_text(encoding="utf-8"))
+    raw["credit"] = {"enabled": False}
     raw["server"]["port"] = 18765
     raw["logging"].update(db_path=str(tmp_path / "db.sqlite"), clips_dir=str(tmp_path / "clips"))
     raw["vocabulary"] = ["Shared"]
@@ -119,6 +120,7 @@ def test_retention_deletes_old_clips_and_rows(tmp_path):
 
 def test_hot_reload_applies_valid_and_rejects_invalid(tmp_path):
     raw = yaml.safe_load((ROOT / "config.yaml").read_text(encoding="utf-8"))
+    raw["credit"] = {"enabled": False}
     raw["server"]["port"] = 18765
     raw["logging"].update(db_path=str(tmp_path / "db.sqlite"), clips_dir=str(tmp_path / "clips"))
     path = tmp_path / "config.yaml"

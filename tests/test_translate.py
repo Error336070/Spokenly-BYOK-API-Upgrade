@@ -32,6 +32,7 @@ def make_wav(seconds=1.0, rate=16000) -> bytes:
 def cfg(tmp_path):
     with open(ROOT / "config.yaml", encoding="utf-8") as f:
         c = yaml.safe_load(f)
+    c["credit"] = {"enabled": False}
     c["server"]["port"] = 18765
     c["logging"].update(db_path=str(tmp_path / "db.sqlite"), clips_dir=str(tmp_path / "clips"))
     c["logging"]["failed_clips_dir"] = str(tmp_path / "failed")

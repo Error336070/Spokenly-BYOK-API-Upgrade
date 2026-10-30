@@ -122,6 +122,14 @@ def validate(cfg) -> None:
         raise ValueError("keep_warm.active_window_min must be <= 30")
     notifications = mapping(cfg, "notifications")
     boolean(notifications, "enabled")
+    credit = mapping(cfg, "credit")
+    boolean(credit, "enabled")
+    number(credit, "low_usd")
+    if "interval_s" in credit:
+        number(credit, "interval_s", 0.001)
+    for key in ("assemblyai_hourly_rate_usd", "assemblyai_starting_credit_usd"):
+        if credit.get(key) is not None:
+            number(credit, key)
     number(notifications, "cooldown_s")
     if "consecutive_errors" in notifications:
         number(notifications, "consecutive_errors", 1, integer=True)
