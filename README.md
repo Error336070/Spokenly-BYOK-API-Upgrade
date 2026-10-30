@@ -88,7 +88,7 @@ Add a custom OpenAI-compatible transcription provider in Spokenly with these val
 2. The route in `config.yaml` names the backend and the provider options.
 3. The proxy re-encodes WAV to FLAC in about 10 ms and uploads it as a raw file.
 4. The transcript goes back to Spokenly in the format it asked for. The proxy supports `json`, `text`, `verbose_json`, `srt` and `vtt`.
-5. The proxy logs the request off the event loop. Logging and clip-save errors are logged without discarding the transcript. `total_latency_ms` ends when transcription finishes, before the request-log write. For OpenRouter requests it also fetches OpenRouter's own latency figure in the background, so you can separate model time from network time. Stats groups connection gaps across all OpenRouter routes and per native provider. Failed requests record the configured provider model too. Older failed rows without that model remain in an unknown native group.
+5. The proxy logs the request in a worker thread. If the log write fails, Spokenly still gets the transcript. For OpenRouter requests it also fetches OpenRouter's own latency figure in the background, so you can separate model time from network time.
 
 ## Benchmarks
 
@@ -170,7 +170,9 @@ OpenRouter drops option keys it doesn't recognize without an error. I checked ea
 
 ## Configuration
 
-The proxy reads three files. It reloads `config.yaml` and `vocabulary.txt` within a second of a save. Each dictation uses one snapshot for routing, encoding, vocabulary, provider settings and timeouts. Server host/port, `logging.db_path`, OpenRouter `base_url`, `app_title` and `app_referer`, and log-file rotation retention need a restart. Reload keeps the current startup-only values until then. Reload validation checks types, bounds, backend names and request bodies with the current vocabulary. `logging.retention_days: 0` keeps rows and clips. If an edit is invalid, it keeps the previous version and shows a notification with the error.
+The proxy reads three files. It reloads `config.yaml` and `vocabulary.txt` within a second of a save. Before it accepts an edit, it checks every value's type and range and builds a test request for each route. If an edit is invalid, it keeps the previous version and shows a notification with the error. A dictation already in progress finishes with the settings it started with.
+
+These settings only change after a restart: `server.host`, `server.port`, `logging.db_path`, and `base_url`, `app_title` and `app_referer` under `openrouter`.
 
 | File | In git | Contents |
 |---|:---:|---|
@@ -186,27 +188,27 @@ The proxy reads three files. It reloads `config.yaml` and `vocabulary.txt` withi
 |---|---|---|
 | `default_route` | `mai-clean` | route for unknown model names |
 | `language` | `en` | used when Spokenly sends no language |
-| `timeouts.request_s` | `15` | minimum total provider deadline in seconds |
-| `timeouts.base_s` | `10` | base of the duration-scaled deadline |
-| `timeouts.per_audio_second_s` | `0.15` | deadline seconds per audio second |
+| `timeouts.request_s` | `15` | shortest time limit for a provider request, in seconds |
+| `timeouts.base_s` | `10` | longer clips get `base_s` plus `per_audio_second_s` for each second of audio |
+| `timeouts.per_audio_second_s` | `0.15` | with the defaults, a 3 minute clip gets 37 s |
 | `upload.flac` | `true` | re-encode WAV to FLAC before sending |
 | `openrouter.multipart` | `true` | upload a raw file instead of base64 JSON |
 | `keep_warm.enabled` | `true` | ping providers every 120 s for 30 minutes after your last dictation |
 | `logging.save_audio` | `false` | keep recordings in `data/clips` |
-| `logging.retention_days` | `7` | age at which recordings, log rows and log files are deleted |
+| `logging.retention_days` | `7` | age at which recordings, log rows and log files are deleted. `0` keeps them. |
+| `logging.failed_clips_dir` | `data/failed` | where the proxy keeps audio from failed requests |
 | `notifications.consecutive_errors` | `3` | failures in a row before a notification |
 | `routes.<name>.backend` | `openrouter` | `openrouter` or `native` |
-| `credit.enabled` | `true` | check OpenRouter key credit at startup and periodically |
-| `credit.interval_s` | `14400` | seconds between credit checks |
-| `credit.low_usd` | `1` | toast below this remaining key budget |
-| `credit.assemblyai_hourly_rate_usd` | `null` | set your hourly rate to enable usage estimates in stats |
-| `credit.assemblyai_starting_credit_usd` | `null` | starting credit for the estimated remaining credit |
+| `credit.enabled` | `true` | check the OpenRouter key's remaining credit at startup and every `credit.interval_s` seconds (4 hours) |
+| `credit.low_usd` | `1` | notify when less than this many dollars remain |
+| `credit.assemblyai_hourly_rate_usd` | `null` | your AssemblyAI price per audio hour, for the estimate in `stats.py` |
+| `credit.assemblyai_starting_credit_usd` | `null` | your AssemblyAI credit at the start, for the same estimate |
 
 Each route has an `openrouter:` block and can have a `native:` block. They hold the model, any extra request fields, and how to send the vocabulary (`vocab_path`, `vocab_max`, `vocab_join`, `vocab_template`).
 
-Credit checks use OpenRouter's [GET /key](https://openrouter.ai/docs/api/api-reference/api-keys/get-current-api-key) and `data.limit_remaining`, or `limit - usage` when both are numbers. Unlimited or missing values mean unknown. This is the key budget, not the account balance. Stats reports audio minutes and cost coverage per backend. AssemblyAI estimates use retained successful native rows, the configured hourly rate and starting credit. Retention, filters, missing durations and use outside this proxy make those estimates incomplete. Native request costs remain null.
+The credit check reads the key's spending limit from OpenRouter's [GET /key](https://openrouter.ai/docs/api/api-reference/api-keys/get-current-api-key), which costs nothing. It only works if the key has a limit set. AssemblyAI has no balance endpoint, so `stats.py` estimates the credit used from the audio minutes in the request log. The estimate misses anything older than `retention_days` and any use outside the proxy.
 
-16-bit PCM WAV stays lossless in FLAC. Other WAV subtypes use normalized samples and 24-bit FLAC. 24-bit PCM stays lossless; floating-point samples are quantized to 24 bits and values outside [-1, 1] clip. Set `upload.flac: false` to send those WAV files unchanged.
+Spokenly sends 16-bit WAV, which the proxy re-encodes to FLAC without loss. A 24-bit WAV also stays lossless. A floating-point WAV is converted to 24-bit FLAC.
 
 </details>
 
@@ -229,10 +231,10 @@ Run each one with `.\.venv\Scripts\python.exe scripts\<name>.py`.
 
 | Command | Result |
 |---|---|
-| `stats.py` | latency, errors, cost, and new TCP connection flags beside gaps since the previous request start per backend/provider |
-| `retry.py [clip]` | resend the newest failed clip, or a given clip, on its saved route |
-| `vocab.py usage` | how often you say each term, with terms beyond each active route vocabulary limit flagged |
-| `vocab.py suggest --min 2` | names, spelling variants and fuzzy matches of 1 to 3 words against your vocabulary at similarity 0.8 or above, ranked by distinct dictations |
+| `stats.py` | latency, errors and cost per backend, audio minutes, estimated AssemblyAI credit, and how often a request opened a new connection after each length of pause |
+| `retry.py [clip]` | sends the newest failed clip, or the one you name, through the proxy on its original route and prints the text. `--copy` also puts it on the clipboard. |
+| `vocab.py usage` | how often you say each term, and which terms are past a route's `vocab_max` |
+| `vocab.py suggest --min 2` | likely names, spelling variants, and phrases close to a vocabulary term but not exact, ranked by how many dictations contain them |
 | `vocab.py add "Term"` | adds a term to `vocabulary.txt` |
 | `shootout.py sheet` | prints the scripts to read aloud |
 | `shootout.py import` | labels your latest recordings as shootout clips |
@@ -266,7 +268,9 @@ powershell -ExecutionPolicy Bypass -File scripts\uninstall-autostart.ps1   # rem
 
 Restart the proxy after you change `.env` or the code. The proxy writes its log to `data\proxy.log`, one file per day.
 
-Startup exceptions, including invalid config, go to `data/proxy.log`. `proxyctl.ps1` exits with code 1 if readiness fails. To enable a second task that checks health every 5 minutes, run `install-autostart.ps1 -Watchdog`. The watchdog shows a toast and starts the proxy task after a failed check. It logs to `data/watchdog.log`. Uninstall removes both tasks. Registration and recovery need a logged-in Windows session. Review and run these scripts from the main checkout after merging the changes.
+If the proxy fails to start, for example because of an invalid `config.yaml`, the error goes to `data\proxy.log` and `proxyctl.ps1` exits with code 1.
+
+`install-autostart.ps1 -Watchdog` also registers a second task that calls `/health` every 5 minutes. If the check fails, it shows a notification and starts the proxy task. It logs to `data\watchdog.log`. `uninstall-autostart.ps1` removes both tasks.
 
 The proxy shows a Windows notification in these cases:
 
@@ -274,7 +278,8 @@ The proxy shows a Windows notification in these cases:
 - A route on the provider's own API is rejected. The notification says to switch that route back to `openrouter`, which is what you want when free credits run out.
 - Three requests in a row fail.
 - A config edit is invalid.
-- A background task fails. Loop iterations log the error and continue. `/health` includes each loop state.
+- Your OpenRouter key has less than `credit.low_usd` left.
+- A background task such as the config watcher or keep-warm fails. `/health` then reports `degraded` and names the stopped task.
 
 You get at most one notification of each kind every 10 minutes.
 
@@ -284,16 +289,17 @@ When a request fails, Spokenly shows the proxy's error. The proxy never retries 
 |---|---|
 | `400` | the audio is missing, empty or unreadable |
 | `401` | Spokenly sent the wrong `PROXY_API_KEY` |
+| `403` | the request came from a web page, because it had an `Origin` header, or used a host name other than `127.0.0.1` or `localhost` |
 | `500` | an API key is missing from `.env`, or the proxy hit an internal error |
 | `501` | the route is set to `backend: native` but has no `native:` block |
 | `502` | the provider returned an error, which the message includes |
-| `504` | the provider exceeded `max(request_s, base_s + per_audio_second_s * WAV duration)` |
+| `504` | the provider took longer than the time limit set under `timeouts` |
 
 ## Privacy
 
-- The proxy binds only to loopback. Every request must have no `Origin` header and a `Host` of `127.0.0.1` or `localhost` on the configured port, including health checks.
+- The proxy listens on `127.0.0.1` and refuses to start on any other address. It rejects requests from web pages, so a site open in your browser can't spend your credits through it.
 - API keys stay in `.env`. The log redacts `Authorization` headers.
-- The proxy saves audio when `save_audio` is enabled. It always saves failed requests and empty transcripts over 2 seconds to `logging.failed_clips_dir`, default `data/failed`, with route and language metadata. `retry.py` resends on that route, prints the text, and offers `--copy` on Windows. It refuses a saved route that no longer exists. Recordings, metadata, log rows and log files expire after 7 days; retention 0 keeps them.
+- The proxy saves audio only when `save_audio` is on, when a request fails, or when a clip over 2 seconds comes back empty. Failed clips go to `data/failed` so `retry.py` can send them again. The proxy deletes recordings, log rows and log files after 7 days.
 - Git ignores `.env`, `vocabulary.txt`, `data/` and your shootout recordings.
 
 ## Project layout
