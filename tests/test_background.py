@@ -25,7 +25,7 @@ def test_watcher_recovers_after_initial_stat_error(cfg, monkeypatch, tmp_path):
 
     monkeypatch.setattr(Path, "stat", stat)
     cfg["notifications"]["enabled"] = False
-    with TestClient(create_app(cfg, backends={}, config_path=path, watch_interval_s=0.01)) as c:
+    with TestClient(create_app(cfg, backends={}, config_path=path, watch_interval_s=0.01), base_url="http://127.0.0.1:18765") as c:
         time.sleep(0.1)
         assert len(calls) > 1
         assert c.get("/health").json()["background"]["watch_config"] == "running"
@@ -42,7 +42,7 @@ def test_unexpected_task_failure_logs_and_notifies(cfg):
 
     backend.generation = fail
     with TestClient(create_app(cfg, backends={"openrouter": backend},
-                              notifier=Notifier(cfg, send=lambda t, b: sent.append(t)))) as c:
+                              notifier=Notifier(cfg, send=lambda t, b: sent.append(t))), base_url="http://127.0.0.1:18765") as c:
         c.post("/v1/audio/transcriptions", files={"file": ("a.wav", make_wav())})
         time.sleep(0.05)
         assert any("Background task failed" in t for t in sent)

@@ -27,7 +27,7 @@ def _parts(req: httpx.Request) -> dict:
 def _app(cfg, handler, keys=KEYS):  # noqa: F811
     native = NativeBackend(cfg, keys, transport=httpx.MockTransport(handler))
     orb = OpenRouterBackend(cfg, "k", transport=httpx.MockTransport(lambda r: httpx.Response(500)))
-    return TestClient(create_app(cfg, backends={"openrouter": orb, "native": native}))
+    return TestClient(create_app(cfg, backends={"openrouter": orb, "native": native}), base_url="http://127.0.0.1:18765")
 
 
 def test_assemblyai_request_and_response(cfg):  # noqa: F811

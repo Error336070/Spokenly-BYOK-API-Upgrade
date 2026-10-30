@@ -280,7 +280,7 @@ When a request fails, Spokenly shows the proxy's error. The proxy never retries 
 
 ## Privacy
 
-- The proxy listens on `127.0.0.1` and refuses to start on any other address.
+- The proxy binds only to loopback. Every request must have no `Origin` header and a `Host` of `127.0.0.1` or `localhost` on the configured port, including health checks.
 - API keys stay in `.env`. The log redacts `Authorization` headers.
 - The proxy saves audio when `save_audio` is enabled. It always saves failed requests and empty transcripts over 2 seconds to `logging.failed_clips_dir`, default `data/failed`, with route and language metadata. `retry.py` resends on that route, prints the text, and offers `--copy` on Windows. It refuses a saved route that no longer exists. Recordings, metadata, log rows and log files expire after 7 days; retention 0 keeps them.
 - Git ignores `.env`, `vocabulary.txt`, `data/` and your shootout recordings.

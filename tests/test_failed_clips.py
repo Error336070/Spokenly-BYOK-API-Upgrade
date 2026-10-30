@@ -17,7 +17,7 @@ def test_failed_or_long_empty_clip_saved(cfg, tmp_path, status, text):
     backend = OpenRouterBackend(cfg, "k", transport=httpx.MockTransport(
         lambda r: httpx.Response(status, json={"text": text})))
     audio = make_wav(3)
-    with TestClient(create_app(cfg, backends={"openrouter": backend})) as c:
+    with TestClient(create_app(cfg, backends={"openrouter": backend}), base_url="http://127.0.0.1:18765") as c:
         r = c.post("/v1/audio/transcriptions", data={"model": "gpt"}, files={"file": ("x.wav", audio)})
         assert r.status_code == status
         saved = Path(c.app.state.db._conn.execute("SELECT clip_path FROM requests").fetchone()[0])

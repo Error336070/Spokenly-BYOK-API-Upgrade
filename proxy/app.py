@@ -166,6 +166,14 @@ def create_app(cfg: dict, backends: dict | None = None, config_path: Path | None
 
     app = FastAPI(title="Dictation Proxy", lifespan=lifespan)
 
+    @app.middleware("http")
+    async def local_client_only(request: Request, call_next):
+        port = cfg["server"]["port"]
+        allowed = {f"127.0.0.1:{port}", f"localhost:{port}"}
+        if "origin" in request.headers or request.headers.get("host", "").lower() not in allowed:
+            return error_response(403, "requests require a local Host and no Origin header", "invalid_request_error")
+        return await call_next(request)
+
     @app.exception_handler(HTTPException)
     async def http_error(request: Request, exc: HTTPException):
         kind = "authentication_error" if exc.status_code == 401 else "invalid_request_error"

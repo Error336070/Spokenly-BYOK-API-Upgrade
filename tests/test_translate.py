@@ -32,6 +32,7 @@ def make_wav(seconds=1.0, rate=16000) -> bytes:
 def cfg(tmp_path):
     with open(ROOT / "config.yaml", encoding="utf-8") as f:
         c = yaml.safe_load(f)
+    c["server"]["port"] = 18765
     c["logging"].update(db_path=str(tmp_path / "db.sqlite"), clips_dir=str(tmp_path / "clips"))
     c["logging"]["failed_clips_dir"] = str(tmp_path / "failed")
     # these tests inspect the JSON/WAV request shape; test_upload.py covers FLAC + multipart
@@ -103,7 +104,7 @@ def test_format_response(fmt, media, check):
 
 def _client(cfg, handler):
     backend = OpenRouterBackend(cfg, "test-key", transport=httpx.MockTransport(handler))
-    return TestClient(create_app(cfg, backends={"openrouter": backend}))
+    return TestClient(create_app(cfg, backends={"openrouter": backend}), base_url="http://127.0.0.1:18765")
 
 
 def test_end_to_end_success(cfg):
@@ -180,7 +181,7 @@ def test_request_errors_are_openai_shaped(cfg):
 
 def test_missing_api_key(cfg):
     backend = OpenRouterBackend(cfg, "", transport=httpx.MockTransport(lambda r: httpx.Response(200)))
-    with TestClient(create_app(cfg, backends={"openrouter": backend})) as c:
+    with TestClient(create_app(cfg, backends={"openrouter": backend}), base_url="http://127.0.0.1:18765") as c:
         r = c.post("/v1/audio/transcriptions", files={"file": ("a.wav", make_wav(), "audio/wav")})
         assert r.status_code == 500 and "OPENROUTER_API_KEY" in r.json()["error"]["message"]
 

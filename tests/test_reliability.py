@@ -27,7 +27,7 @@ def test_log_failure_preserves_transcript_off_loop(cfg, monkeypatch):
     monkeypatch.setattr(RequestLog, "insert", fail)
     backend = OpenRouterBackend(cfg, "k", transport=httpx.MockTransport(
         lambda r: httpx.Response(200, json={"text": "Zyntrabox"})))
-    with TestClient(create_app(cfg, backends={"openrouter": backend})) as c:
+    with TestClient(create_app(cfg, backends={"openrouter": backend}), base_url="http://127.0.0.1:18765") as c:
         response = c.post("/v1/audio/transcriptions", files={"file": ("a.wav", make_wav())})
         assert response.json() == {"text": "Zyntrabox"}
     assert threads

@@ -44,7 +44,7 @@ def test_upstream_402_triggers_toast(cfg):  # noqa: F811
     backend = OpenRouterBackend(cfg, "k", transport=httpx.MockTransport(
         lambda r: httpx.Response(402, json={"error": {"message": "no credits"}})))
     app = create_app(cfg, backends={"openrouter": backend}, notifier=Notifier(cfg, send=lambda t, b: sent.append(t)))
-    with TestClient(app) as c:
+    with TestClient(app, base_url="http://127.0.0.1:18765") as c:
         r = c.post("/v1/audio/transcriptions", files={"file": ("a.wav", make_wav(), "audio/wav")})
         assert r.status_code == 502 and "credits" in r.json()["error"]["message"]
     assert sent == ["Dictation Proxy: OpenRouter credits exhausted"]
@@ -66,7 +66,7 @@ def test_keep_warm_only_while_active(cfg):  # noqa: F811
 
     b = FakeBackend()
     cfg["keep_warm"] = {"enabled": True, "interval_s": 0.05, "active_window_min": 30}
-    with TestClient(create_app(cfg, backends={"openrouter": b})) as c:
+    with TestClient(create_app(cfg, backends={"openrouter": b}), base_url="http://127.0.0.1:18765") as c:
         time.sleep(0.2)
         assert b.warmups == 0                      # no dictation yet: stay quiet
         c.post("/v1/audio/transcriptions", files={"file": ("a.wav", make_wav(), "audio/wav")})
@@ -81,6 +81,7 @@ def test_keep_warm_only_while_active(cfg):  # noqa: F811
 
 def test_vocabulary_file_merged_and_hot_reloaded(tmp_path):
     raw = yaml.safe_load((ROOT / "config.yaml").read_text(encoding="utf-8"))
+    raw["server"]["port"] = 18765
     raw["logging"].update(db_path=str(tmp_path / "db.sqlite"), clips_dir=str(tmp_path / "clips"))
     raw["vocabulary"] = ["Shared"]
     raw["vocabulary_file"] = str(tmp_path / "vocab.txt")
@@ -91,7 +92,7 @@ def test_vocabulary_file_merged_and_hot_reloaded(tmp_path):
     assert cfg["vocabulary"] == ["Shared", "Alpha", "Beta"]
 
     backend = OpenRouterBackend(cfg, "k", transport=httpx.MockTransport(lambda r: httpx.Response(200, json={"text": "x"})))
-    with TestClient(create_app(cfg, backends={"openrouter": backend}, config_path=path, watch_interval_s=0.05)):
+    with TestClient(create_app(cfg, backends={"openrouter": backend}, config_path=path, watch_interval_s=0.05), base_url="http://127.0.0.1:18765"):
         time.sleep(0.05)
         (tmp_path / "vocab.txt").write_text("Alpha\nGamma\n", encoding="utf-8")
         for _ in range(60):
@@ -118,6 +119,7 @@ def test_retention_deletes_old_clips_and_rows(tmp_path):
 
 def test_hot_reload_applies_valid_and_rejects_invalid(tmp_path):
     raw = yaml.safe_load((ROOT / "config.yaml").read_text(encoding="utf-8"))
+    raw["server"]["port"] = 18765
     raw["logging"].update(db_path=str(tmp_path / "db.sqlite"), clips_dir=str(tmp_path / "clips"))
     path = tmp_path / "config.yaml"
     path.write_text(yaml.safe_dump(raw), encoding="utf-8")
@@ -134,7 +136,7 @@ def test_hot_reload_applies_valid_and_rejects_invalid(tmp_path):
             time.sleep(0.05)
         return False
 
-    with TestClient(app) as c:
+    with TestClient(app, base_url="http://127.0.0.1:18765") as c:
         raw["routes"]["new-route"] = {"backend": "openrouter", "openrouter": {"model": "a/b"}}
         raw["timeouts"]["request_s"] = 7
         time.sleep(0.05)

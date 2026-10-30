@@ -40,7 +40,7 @@ def test_openrouter_multipart_flac_end_to_end(cfg):  # noqa: F811
         return httpx.Response(200, json={"text": "ok"})
 
     backend = OpenRouterBackend(cfg, "k", transport=httpx.MockTransport(handler))
-    with TestClient(create_app(cfg, backends={"openrouter": backend})) as c:
+    with TestClient(create_app(cfg, backends={"openrouter": backend}), base_url="http://127.0.0.1:18765") as c:
         r = c.post("/v1/audio/transcriptions", data={"model": "mai-clean"},
                    files={"file": ("a.wav", make_wav(1.0), "audio/wav")})
         assert r.json() == {"text": "ok"}
