@@ -7,6 +7,7 @@ import sqlite3
 import statistics
 import sys
 from pathlib import Path
+from datetime import datetime
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from proxy.config import load_config  # noqa: E402
@@ -58,6 +59,17 @@ def main():
               f"{('$%.5f' % statistics.mean(costs)) if costs else '-':>9}  {', '.join(providers)}")
     print("\nprov = proxy -> provider round trip (upload + processing); OR = OpenRouter-reported latency;")
     print("overhead = prov - OR (network/upload/routing outside the model). All in ms.")
+
+    print("\nRecent provider requests, with seconds since the previous request start in that backend/provider:")
+    previous, connections = {}, []
+    for r in rows:
+        key = (r["backend"], (r["provider_model"] or "").split("/")[0])
+        started = datetime.fromisoformat(r["ts"])
+        gap = (started - previous[key]).total_seconds() if key in previous else None
+        previous[key] = started
+        fresh = r["new_connection"] if "new_connection" in r.keys() else None
+        connections.append(f"  {r['ts']} {r['route']:12} gap {fmt(gap, 's'):>6} new TCP {fresh if fresh is not None else 'unknown'}")
+    print("\n".join(connections[-20:]))
 
     errors = [r for r in rows if r["status"] == "error"][-args.errors:]
     if errors:

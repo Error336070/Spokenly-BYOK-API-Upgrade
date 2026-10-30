@@ -58,8 +58,17 @@ def _parse(parser, data, label):
         raise BackendError(f"{label} returned an unreadable response: {e}", 502, str(data)) from e
 
 
-async def _request(client: httpx.AsyncClient, label: str, cfg: dict, hints: dict, method: str, url: str, audio_duration_s: float | None = None, **kw):
+async def _request(client: httpx.AsyncClient, label: str, cfg: dict, hints: dict, method: str, url: str, audio_duration_s: float | None = None, connection_info: dict | None = None, **kw):
     """Send with the live timeout config; map every failure to a BackendError. Returns (json, latency_ms, headers)."""
+    connection_info = connection_info if connection_info is not None else {}
+
+    async def trace(event, info):
+        if event == "connection.connect_tcp.started":
+            connection_info["new_connection"] = True
+        elif event.endswith("send_request_headers.started"):
+            connection_info.setdefault("new_connection", False)
+
+    kw["extensions"] = {"trace": trace}
     t = cfg["timeouts"]
     deadline = max(t["request_s"], t.get("base_s", 10) + t.get("per_audio_second_s", 0.15) * (audio_duration_s or 0))
     t0 = time.perf_counter()
@@ -121,10 +130,12 @@ class OpenRouterBackend:
         else:
             body = build_openrouter_body(audio, fmt, route["openrouter"], language, vocab)
             kw = {"json": body}
+        connection_info = {}
         data, latency, headers = await _request(self.client, f"OpenRouter ({body['model']})", self.cfg,
                                                 _OPENROUTER_HINTS, "POST", "/audio/transcriptions",
-                                                audio_duration_s=audio_duration_s, **kw)
+                                                audio_duration_s=audio_duration_s, connection_info=connection_info, **kw)
         out = _parse(parse_openrouter_response, data, "OpenRouter")
+        out["new_connection"] = connection_info.get("new_connection")
         out["provider_latency_ms"] = latency
         out["provider_model"] = body["model"]
         out["generation_id"] = headers.get("x-generation-id")
@@ -182,16 +193,17 @@ class NativeBackend:
         model = n.get("model", "universal-3-5-pro")
         if language:
             config.setdefault("language_codes", language)
+        connection_info = {}
         data, latency, _ = await _request(
             self._client("assemblyai"), f"AssemblyAI ({model})", self.cfg,
             {401: " (check ASSEMBLYAI_API_KEY in .env)", 429: " (rate limited; try again shortly)"},
             "POST", s.get("base_url", "https://sync.eu.assemblyai.com").rstrip("/") + "/v1/transcribe",
-            audio_duration_s=audio_duration_s,
+            audio_duration_s=audio_duration_s, connection_info=connection_info,
             headers={"Authorization": key, "X-AAI-Model": model},
             files={"audio": (f"audio.{fmt}", audio, _MIME.get(fmt, "application/octet-stream")),
                    "config": (None, json.dumps(config), "application/json")})
         out = _parse(parse_assemblyai_response, data, "AssemblyAI")
-        out.update(provider_latency_ms=latency, provider_model=f"assemblyai/{model}")
+        out.update(new_connection=connection_info.get("new_connection"), provider_latency_ms=latency, provider_model=f"assemblyai/{model}")
         return out
 
     async def _azure(self, audio, fmt, n, definition, language, audio_duration_s):
@@ -205,30 +217,34 @@ class NativeBackend:
         if language:
             definition.setdefault("locales", [language])
         model = (definition.get("enhancedMode") or {}).get("model", "azure-speech")
+        connection_info = {}
         data, latency, _ = await _request(
             self._client("azure"), f"Azure Speech ({model})", self.cfg,
             {401: " (check AZURE_SPEECH_KEY and the region in .env)", 429: " (rate limited; try again shortly)"},
             "POST", endpoint.rstrip("/") + "/speechtotext/transcriptions:transcribe",
-            audio_duration_s=audio_duration_s,
+            audio_duration_s=audio_duration_s, connection_info=connection_info,
             params={"api-version": s.get("api_version", "2025-10-15")},
             headers={"Ocp-Apim-Subscription-Key": key},
             files={"audio": (f"audio.{fmt}", audio, _MIME.get(fmt, "application/octet-stream")),
                    "definition": (None, json.dumps(definition), "application/json")})
         out = _parse(parse_azure_response, data, "Azure Speech")
-        out.update(provider_latency_ms=latency, provider_model=f"azure/{model}")
+        out.update(new_connection=connection_info.get("new_connection"), provider_latency_ms=latency, provider_model=f"azure/{model}")
         return out
 
     async def warmup(self) -> None:
         """Pre-open TLS connections (AssemblyAI has a dedicated warm endpoint)."""
-        if self.keys.get("assemblyai"):
+        native = [r["native"] for r in self.cfg["routes"].values()
+                  if r["backend"] == "native" and r.get("native", {}).get("provider") == "assemblyai"]
+        if self.keys.get("assemblyai") and native:
             try:
                 await self._client("assemblyai").get(
                     self._settings("assemblyai").get("base_url", "https://sync.eu.assemblyai.com").rstrip("/")
                     + "/v1/warm", headers={"Authorization": self.keys["assemblyai"],
-                                           "X-AAI-Model": "universal-3-5-pro"}, timeout=5)
+                                           "X-AAI-Model": native[0].get("model", "universal-3-5-pro")}, timeout=5)
             except httpx.HTTPError:
                 pass
 
     async def aclose(self):
         for c in self.clients.values():
             await c.aclose()
+

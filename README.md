@@ -220,7 +220,7 @@ Run each one with `.\.venv\Scripts\python.exe scripts\<name>.py`.
 
 | Command | Result |
 |---|---|
-| `stats.py` | latency percentiles, errors, provider and cost for each route |
+| `stats.py` | latency, errors, cost, and new TCP connection flags beside gaps since the previous request start per backend/provider |
 | `retry.py [clip]` | resend the newest failed clip, or a given clip, on its saved route |
 | `vocab.py usage` | how often you say each vocabulary term |
 | `vocab.py suggest` | likely names and inconsistent spellings found in your transcripts |

@@ -288,7 +288,7 @@ def create_app(cfg: dict, backends: dict | None = None, config_path: Path | None
         row.update(
             status="ok", http_status=200, provider_model=result["provider_model"],
             audio_duration_s=duration, provider_latency_ms=round(result["provider_latency_ms"], 1),
-            cost=result.get("cost"), generation_id=result.get("generation_id"),
+            new_connection=result.get("new_connection"), cost=result.get("cost"), generation_id=result.get("generation_id"),
             transcript=result["text"], total_latency_ms=_ms(t0),
         )
         if not result["text"] and (duration or 0) > 2:

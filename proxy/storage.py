@@ -21,6 +21,7 @@ _COLUMNS = [
     ("or_latency_ms", "REAL"),         # OpenRouter-reported latency (filled in shortly after the request)
     ("or_provider", "TEXT"),           # provider OpenRouter actually routed to
     ("total_latency_ms", "REAL"),      # whole request inside the proxy
+    ("new_connection", "INTEGER"),    # NULL when the transport exposes no trace events
     ("cost", "REAL"),
     ("generation_id", "TEXT"),
     ("status", "TEXT"),
