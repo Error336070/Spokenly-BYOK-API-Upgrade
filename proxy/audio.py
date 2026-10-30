@@ -44,9 +44,17 @@ def to_flac(wav: bytes) -> bytes | None:
         log.warning("soundfile is not installed; sending WAV (pip install -r requirements.txt)")
         return None
     try:
-        data, rate = soundfile.read(io.BytesIO(wav), dtype="int16")
+        source = io.BytesIO(wav)
+        info = soundfile.info(source)
+        source.seek(0)
+        if info.subtype == "PCM_16":
+            data, rate = soundfile.read(source, dtype="int16")
+            subtype = "PCM_16"
+        else:
+            data, rate = soundfile.read(source, dtype="float64")
+            subtype = "PCM_24"
         out = io.BytesIO()
-        soundfile.write(out, data, rate, format="FLAC")
+        soundfile.write(out, data, rate, format="FLAC", subtype=subtype)
         return out.getvalue()
     except Exception as e:  # missing package or odd WAV: fall back to sending the WAV
         log.warning("FLAC encoding failed, sending WAV: %s", e)

@@ -58,6 +58,7 @@ openrouter:
   multipart: true        # send audio as a raw file upload instead of base64 JSON (measured faster)
 
 upload:
+  # 16-bit PCM stays lossless. Other WAV input uses 24-bit FLAC; float samples are quantized and clip outside [-1, 1].
   flac: true             # re-encode WAV to lossless FLAC before sending (~45% of the size, ~5-15 ms);
                          # 2026-10-30 test: ~1.5 s faster on a 55 s clip, ~0.3 s on 12 s, identical transcripts
 

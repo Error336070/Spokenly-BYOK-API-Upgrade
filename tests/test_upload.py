@@ -3,6 +3,8 @@ import json
 
 import httpx
 import soundfile
+import numpy as np
+import pytest
 from fastapi.testclient import TestClient
 
 from proxy.app import create_app
@@ -13,12 +15,26 @@ from tests.test_translate import cfg, make_wav  # noqa: F401  (fixture)
 
 
 def test_flac_is_lossless_and_smaller():
-    wav = make_wav(2.0)
+    signal = (10000 * np.sin(np.arange(32000) * 0.07)).astype("int16")
+    source = io.BytesIO()
+    soundfile.write(source, signal, 16000, format="WAV", subtype="PCM_16")
+    wav = source.getvalue()
     flac = to_flac(wav)
     assert flac[:4] == b"fLaC" and len(flac) < len(wav)
     a, _ = soundfile.read(io.BytesIO(wav), dtype="int16")
     b, rate = soundfile.read(io.BytesIO(flac), dtype="int16")
     assert rate == 16000 and (a == b).all()
+
+
+@pytest.mark.parametrize("subtype", ["FLOAT", "PCM_24"])
+def test_non16bit_wav_preserves_signal(subtype):
+    signal = 0.5 * np.sin(np.arange(16000) * 0.07)
+    source = io.BytesIO()
+    soundfile.write(source, signal, 16000, format="WAV", subtype=subtype)
+    flac = to_flac(source.getvalue())
+    decoded, rate = soundfile.read(io.BytesIO(flac))
+    assert rate == 16000
+    assert np.max(np.abs(decoded - signal)) < 1e-6
 
 
 def test_prepare_upload_switch_and_fallback():

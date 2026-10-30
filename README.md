@@ -206,6 +206,8 @@ Each route has an `openrouter:` block and can have a `native:` block. They hold 
 
 Credit checks use OpenRouter's [GET /key](https://openrouter.ai/docs/api/api-reference/api-keys/get-current-api-key) and `data.limit_remaining`, or `limit - usage` when both are numbers. Unlimited or missing values mean unknown. This is the key budget, not the account balance. Stats reports audio minutes and cost coverage per backend. AssemblyAI estimates use retained successful native rows, the configured hourly rate and starting credit. Retention, filters, missing durations and use outside this proxy make those estimates incomplete. Native request costs remain null.
 
+16-bit PCM WAV stays lossless in FLAC. Other WAV subtypes use normalized samples and 24-bit FLAC. 24-bit PCM stays lossless; floating-point samples are quantized to 24 bits and values outside [-1, 1] clip. Set `upload.flac: false` to send those WAV files unchanged.
+
 </details>
 
 <details>
