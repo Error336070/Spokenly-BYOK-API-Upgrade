@@ -1,0 +1,126 @@
+# Dictation Proxy configuration.
+# Spokenly picks a route by the "model" field it sends. Unknown model names use default_route.
+
+server:
+  host: 127.0.0.1        # never change to 0.0.0.0
+  port: 8765
+
+# Edits to this file apply within ~1 s without a restart (except server host/port).
+# An invalid edit is ignored (the previous config stays) and shows a toast.
+
+default_route: mai-clean
+
+keep_warm:
+  enabled: true
+  interval_s: 120          # tiny ping to keep provider connections open (AssemblyAI has a /v1/warm endpoint)
+  active_window_min: 30    # only while you've dictated within this many minutes; stops when you're away
+
+notifications:
+  enabled: true
+  consecutive_errors: 3   # toast after this many failed requests in a row
+  cooldown_s: 600         # at most one toast per kind (401/402/429/repeated/config) per 10 minutes
+language: en             # used when Spokenly sends no language
+
+timeouts:
+  connect_s: 5
+  request_s: 15          # safety net against hung requests; on timeout Spokenly gets an error
+
+logging:
+  db_path: data/requests.sqlite
+  save_audio: false      # set true while recording shootout clips (applies without a restart)
+  retention_days: 7      # delete saved clips, request-log rows and daily proxy.log files older than this; 0 = keep
+  clips_dir: data/clips
+  detail_first_n: 20     # log full request detail (headers, form fields, audio info) for the first N requests after start
+
+# Shared vocabulary: injected into every route that defines vocab_path, trimmed to vocab_max.
+# Your personal terms live in vocabulary_file (one per line, not tracked by git; see vocabulary.example.txt)
+# and are appended to the list below. Both apply instantly when edited. Manage them with scripts\vocab.py.
+vocabulary_file: vocabulary.txt
+vocabulary: []
+
+openrouter:
+  base_url: https://openrouter.ai/api/v1
+  app_title: Dictation Proxy
+  app_referer: http://localhost/dictation-proxy
+  # After each request, fetch OpenRouter's own latency and routed provider in the background (retry delays).
+  # OpenRouter usually has them ~6-10 s after the request.
+  generation_stats_delays_s: [5, 5, 10, 20]
+  multipart: true        # send audio as a raw file upload instead of base64 JSON (measured faster)
+
+upload:
+  flac: true             # re-encode WAV to lossless FLAC before sending (~45% of the size, ~5-15 ms);
+                         # 2026-10-30 test: ~1.5 s faster on a 55 s clip, ~0.3 s on 12 s, identical transcripts
+
+# Native provider settings (keys and Azure region live in .env).
+native:
+  assemblyai:
+    base_url: https://sync.eu.assemblyai.com     # EU data zone; global: https://sync.assemblyai.com
+  azure:
+    api_version: "2025-10-15"                    # endpoint comes from AZURE_SPEECH_REGION (northeurope)
+
+# Each route: `backend: openrouter` or `backend: native` (a one-line switch; Spokenly doesn't change).
+# Under native: provider (azure | assemblyai), body, vocab_path, vocab_max as below.
+# Under openrouter:
+#   model           full OpenRouter slug
+#   body            extra JSON merged into the request (provider options, routing)
+#   vocab_path      dot-path where the vocabulary goes; omit for no vocabulary
+#   vocab_max       trim the vocabulary to this many terms
+#   vocab_join      send as one string joined by this separator instead of a list
+#   vocab_template  send as a string, e.g. "Vocabulary: {terms}"
+# Option findings from scripts/probe_options.py (2026-10-29) are noted per route.
+routes:
+  mai-clean:
+    backend: openrouter
+    openrouter:
+      model: microsoft/mai-transcribe-2
+      # Extra JSON merged into the request body. Dot-path vocab_path is where the vocabulary list goes.
+      body:
+        provider:
+          options:
+            azure:
+              enhancedMode:
+                enabled: true
+                modelOptions:
+                  transcribeStyle: clean
+      vocab_path: provider.options.azure.phraseList.phrases
+      vocab_max: 500
+    native:                       # used when backend: native (Azure Speech fast transcription)
+      provider: azure
+      body:                       # the `definition` JSON
+        enhancedMode:
+          enabled: true
+          model: MAI-Transcribe-2
+          modelOptions:
+            transcribeStyle: clean    # docs disagree on the default, so always explicit
+      vocab_path: phraseList.phrases
+      vocab_max: 500
+
+    # Verified: transcribeStyle=clean removes um/uh and repeats; phraseList fixes rare words.
+
+  # Removed after the 2026-10-29 shootout: voxtral, voxtral-mini (keep fillers), scribe-clean (vocabulary
+  # ignored via OpenRouter), gemini (slowest, least accurate). Their working settings are in the README.
+
+  assembly:
+    backend: native               # AssemblyAI free credits (2026-10-30); switch back to openrouter when they run out
+    openrouter:
+      model: assemblyai/universal-3-6-pro
+      body: {}
+      vocab_path: provider.options.assemblyai.keyterms_prompt   # verified working
+      vocab_max: 100
+    native:                       # used when backend: native (AssemblyAI Sync API)
+      provider: assemblyai
+      model: universal-3-5-pro    # the Sync API documents 3.5 Pro only; OpenRouter serves 3.6 Pro
+      body: {}                    # the `config` JSON (language_codes is filled from the request)
+      vocab_path: keyterms_prompt # max 100 terms / 8000 characters
+      vocab_max: 100
+    # disfluencies=false and a "no fillers" prompt both had no effect on TTS test audio.
+
+  gpt:
+    backend: openrouter
+    openrouter:
+      model: openai/gpt-transcribe
+      body: {}
+      vocab_path: provider.options.openai.prompt                # verified working
+      vocab_template: "Vocabulary: {terms}"
+      vocab_max: 100
+    # A "no fillers" instruction in the prompt had no effect.

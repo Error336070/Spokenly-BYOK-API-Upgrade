@@ -1,0 +1,65 @@
+# Reading scripts for the model shootout. Record yourself, not TTS.
+#   read      what to say. (um) / (uh) mark where to hesitate naturally; say the email as written in brackets.
+#   expected  the ideal clean transcript: no fillers, self-corrections resolved, digits and symbols
+#   vocab     terms that must appear spelled exactly (case-insensitive; hyphen and space count as equal)
+#   forbidden words that must NOT appear (e.g. the discarded half of a self-correction)
+
+- id: cmd1
+  kind: command
+  read: "Open the OpenRouter dashboard."
+  expected: "Open the OpenRouter dashboard."
+  vocab: [OpenRouter]
+
+- id: cmd2
+  kind: command
+  read: "(um) Restart the uvicorn server."
+  expected: "Restart the uvicorn server."
+  vocab: [uvicorn]
+
+- id: cmd3
+  kind: command
+  read: "Set the timeout to fifteen seconds."
+  expected: "Set the timeout to 15 seconds."
+
+- id: cmd4
+  kind: command
+  read: "Email dictation.test@example.com.  [say: dictation dot test at example dot com]"
+  expected: "Email dictation.test@example.com."
+
+- id: cmd5
+  kind: command
+  read: "Switch Spokenly to Voxtral."
+  expected: "Switch Spokenly to Voxtral."
+  vocab: [Spokenly, Voxtral]
+
+- id: mid1
+  kind: medium
+  read: >-
+    Let's schedule the review for next Tuesday, no, Wednesday at three PM. (uh) We need to compare
+    ElevenLabs and AssemblyAI, and the error rate should drop by twelve percent.
+  expected: >-
+    Let's schedule the review for next Wednesday at 3 PM. We need to compare ElevenLabs and
+    AssemblyAI, and the error rate should drop by 12%.
+  vocab: [ElevenLabs, AssemblyAI]
+  forbidden: [Tuesday]
+
+- id: long1
+  kind: long
+  read: >-
+    So, (um) here's a quick update on the dictation proxy. Last week we ran about two hundred and forty
+    test clips through OpenRouter, and Voxtral was the fastest, averaging, (uh) roughly nine hundred
+    milliseconds per request. MAI-Transcribe was slower, but it removed almost every filler word, which
+    matters because I don't want to clean up transcripts by hand. ElevenLabs came in third. The proxy
+    itself is a small FastAPI app running under uvicorn, and it logs every request to SQLite, including
+    latency, cost, and the full transcript. (um) Accuracy improved by about seven point five percent once
+    we added a custom vocabulary. If anything breaks, send the logs to dictation.test@example.com
+    [say: dictation dot test at example dot com], and I'll take a look before Friday the fourteenth.
+  expected: >-
+    So, here's a quick update on the dictation proxy. Last week we ran about 240 test clips through
+    OpenRouter, and Voxtral was the fastest, averaging roughly 900 milliseconds per request.
+    MAI-Transcribe was slower, but it removed almost every filler word, which matters because I don't
+    want to clean up transcripts by hand. ElevenLabs came in third. The proxy itself is a small FastAPI
+    app running under uvicorn, and it logs every request to SQLite, including latency, cost, and the
+    full transcript. Accuracy improved by about 7.5% once we added a custom vocabulary. If anything
+    breaks, send the logs to dictation.test@example.com, and I'll take a look before Friday the 14th.
+  vocab: [OpenRouter, Voxtral, MAI-Transcribe, ElevenLabs, FastAPI, uvicorn, SQLite]

@@ -1,0 +1,16 @@
+# secrets and personal vocabulary
+.env
+vocabulary.txt
+
+# runtime data: request log, proxy.log, saved clips, TTS test clips
+data/
+
+# your own voice recordings and shootout results
+shootout/clips/
+shootout/results/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/

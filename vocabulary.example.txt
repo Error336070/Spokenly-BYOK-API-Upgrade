@@ -1,0 +1,5 @@
+# Copy to vocabulary.txt and replace with your own terms: one per line, spelled exactly as it should appear.
+# Names, brands, jargon and acronyms the models get wrong. AssemblyAI uses at most 100 terms.
+Spokenly
+OpenRouter
+AssemblyAI
