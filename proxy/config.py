@@ -19,7 +19,8 @@ def load_config(path: Path | None = None) -> dict:
     with open(path, encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
     validate(cfg)
-    for key in ("db_path", "clips_dir"):
+    cfg["logging"].setdefault("failed_clips_dir", "data/failed")
+    for key in ("db_path", "clips_dir", "failed_clips_dir"):
         p = Path(cfg["logging"][key])
         if not p.is_absolute():
             cfg["logging"][key] = str(ROOT / p)
@@ -106,6 +107,8 @@ def validate(cfg) -> None:
     logging = mapping(cfg, "logging", True)
     for key in ("db_path", "clips_dir"):
         text(logging, key, True)
+    if "failed_clips_dir" in logging:
+        text(logging, "failed_clips_dir", True)
     boolean(logging, "save_audio")
     if "save_audio" not in logging:
         raise ValueError("missing logging.save_audio")

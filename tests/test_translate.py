@@ -33,6 +33,7 @@ def cfg(tmp_path):
     with open(ROOT / "config.yaml", encoding="utf-8") as f:
         c = yaml.safe_load(f)
     c["logging"].update(db_path=str(tmp_path / "db.sqlite"), clips_dir=str(tmp_path / "clips"))
+    c["logging"]["failed_clips_dir"] = str(tmp_path / "failed")
     # these tests inspect the JSON/WAV request shape; test_upload.py covers FLAC + multipart
     c["openrouter"]["multipart"] = False
     c["upload"] = {"flac": False}

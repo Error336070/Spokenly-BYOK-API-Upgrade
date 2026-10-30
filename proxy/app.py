@@ -65,12 +65,14 @@ def create_app(cfg: dict, backends: dict | None = None, config_path: Path | None
             log.exception("request-log write failed")
             return None
 
-    async def save_clip(audio, fmt):
+    async def save_clip(audio, fmt, failed=None):
         def write():
-            d = Path(cfg["logging"]["clips_dir"])
+            d = Path(cfg["logging"].get("failed_clips_dir", "data/failed") if failed else cfg["logging"]["clips_dir"])
             d.mkdir(parents=True, exist_ok=True)
             path = d / f"{datetime.now():%Y%m%d-%H%M%S}-{uuid.uuid4().hex[:6]}.{fmt}"
             path.write_bytes(audio)
+            if failed:
+                path.with_suffix(path.suffix + ".json").write_text(json.dumps(failed), encoding="utf-8")
             return str(path)
         try:
             return await asyncio.to_thread(write)
@@ -259,12 +261,12 @@ def create_app(cfg: dict, backends: dict | None = None, config_path: Path | None
             "details": json.dumps(details) if details else None,
         }
 
-        t_enc = time.perf_counter()
-        send_audio, send_fmt = await asyncio.to_thread(prepare_upload, audio, fmt, cfg)
-        row.update(sent_format=send_fmt, sent_bytes=len(send_audio), encode_ms=_ms(t_enc))
-
         backend = app.state.backends.get(route["backend"])
+        failed_metadata = {"route": route_name, "language": language}
         try:
+            t_enc = time.perf_counter()
+            send_audio, send_fmt = await asyncio.to_thread(prepare_upload, audio, fmt, cfg)
+            row.update(sent_format=send_fmt, sent_bytes=len(send_audio), encode_ms=_ms(t_enc))
             if backend is None:
                 raise BackendError(f"backend '{route['backend']}' for route '{route_name}' is not "
                                    f"implemented yet; switch it to openrouter in config.yaml", 501)
@@ -274,6 +276,7 @@ def create_app(cfg: dict, backends: dict | None = None, config_path: Path | None
             if not isinstance(e, BackendError):
                 log.exception("unexpected error in route %s", route_name)
                 e = BackendError(f"Dictation Proxy internal error: {type(e).__name__}: {e}", 500, repr(e))
+            row["clip_path"] = await save_clip(audio, fmt, failed_metadata)
             row.update(status="error", http_status=e.status, error=e.detail, total_latency_ms=_ms(t0))
             await db_write(app.state.db.insert, row)
             notifier.error(route_name, str(e), getattr(e, "upstream_status", None), route["backend"])
@@ -288,6 +291,8 @@ def create_app(cfg: dict, backends: dict | None = None, config_path: Path | None
             cost=result.get("cost"), generation_id=result.get("generation_id"),
             transcript=result["text"], total_latency_ms=_ms(t0),
         )
+        if not result["text"] and (duration or 0) > 2:
+            row["clip_path"] = await save_clip(audio, fmt, failed_metadata)
         row_id = await db_write(app.state.db.insert, row)
         notifier.success()
         log.info("%s/%s %.1fs audio, read %.0f ms, provider %.0f ms, total %.0f ms, cost %s: %s",

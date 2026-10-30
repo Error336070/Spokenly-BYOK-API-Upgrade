@@ -32,6 +32,7 @@ logging:
   save_audio: false      # set true while recording shootout clips (applies without a restart)
   retention_days: 7      # delete saved clips, request-log rows and daily proxy.log files older than this; 0 = keep
   clips_dir: data/clips
+  failed_clips_dir: data/failed # always save failed requests and empty transcripts over 2 s, with route metadata
   detail_first_n: 20     # log full request detail (headers, form fields, audio info) for the first N requests after start
 
 # Shared vocabulary: injected into every route that defines vocab_path, trimmed to vocab_max.
