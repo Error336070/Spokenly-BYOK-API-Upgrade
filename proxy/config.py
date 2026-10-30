@@ -3,12 +3,12 @@ import json
 import math
 import os
 from urllib.parse import urlsplit
-
-from .translate import build_native_payload, build_openrouter_options
 from pathlib import Path
 
 import yaml
 from dotenv import load_dotenv
+
+from .translate import build_native_payload, build_openrouter_options
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -57,6 +57,7 @@ def validate(cfg) -> None:
     """Raise ValueError if the config can't be used (checked before a hot reload is applied)."""
     if not isinstance(cfg, dict):
         raise ValueError("config.yaml is empty or not a mapping")
+
     def mapping(parent, key, required=False):
         value = parent.get(key, None if required else {})
         if not isinstance(value, dict):
@@ -66,7 +67,7 @@ def validate(cfg) -> None:
     def text(parent, key, required=False):
         value = parent.get(key, "")
         if not isinstance(value, str) or (required and not value.strip()):
-            raise ValueError(f"{key} must be a string" )
+            raise ValueError(f"{key} must be a string")
         return value
 
     def number(parent, key, minimum=0, required=False, integer=False):
@@ -83,7 +84,9 @@ def validate(cfg) -> None:
     def url(parent, key):
         value = text(parent, key, True)
         parts = urlsplit(value)
-        if parts.scheme not in ("http", "https") or not parts.hostname:
+        port = parts.port
+        if (parts.scheme not in ("http", "https") or not parts.hostname or port == 0
+                or parts.query or parts.fragment or any(ord(c) <= 32 for c in value)):
             raise ValueError(f"{key} must be an HTTP URL")
 
     server = mapping(cfg, "server", True)
@@ -180,6 +183,12 @@ def validate(cfg) -> None:
                     if block.get("provider") not in ("azure", "assemblyai"):
                         raise ValueError("unknown native provider")
                     body = build_native_payload(block, vocab or ["Zyntrabox"])
+                    if block["provider"] == "assemblyai":
+                        model = block.get("model", "universal-3-5-pro")
+                        if not model or not model.isascii() or any(ord(c) < 32 or ord(c) == 127 for c in model):
+                            raise ValueError("native model must be a nonempty ASCII header value")
+                    elif "enhancedMode" in body and not isinstance(body["enhancedMode"], dict):
+                        raise ValueError("Azure enhancedMode must be a mapping")
                 json.dumps(body, allow_nan=False)
             except (TypeError, ValueError, AttributeError, KeyError) as e:
                 raise ValueError(f"route '{name}' cannot build its {kind} body: {e}") from e

@@ -15,6 +15,11 @@ from tests.test_translate import cfg  # noqa: F401
     ("routes.gpt.openrouter.vocab_max", -1), ("vocabulary", "Zyntrabox"),
     ("openrouter.generation_stats_delays_s", ["5"]), ("server.port", True),
     ("notifications.cooldown_s", float("nan")),
+    ("native.assemblyai.base_url", "https://example.invalid:Zyntrabox"),
+    ("native.assemblyai.base_url", "https://example.invalid:70000"),
+    ("routes.assembly.native.model", "Zyntrabox\nbroken"),
+    ("routes.assembly.native.model", "Zyntrabox\u0131"),
+    ("routes.mai-clean.native.body.enhancedMode", "Zyntrabox"),
 ])
 def test_reject_invalid_config(cfg, path, value):
     data = copy.deepcopy(cfg)
