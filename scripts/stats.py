@@ -85,7 +85,8 @@ def main():
     print("\nRecent provider requests, with seconds since the previous request start in that backend/provider:")
     previous, connections = {}, []
     for r in rows:
-        key = (r["backend"], (r["provider_model"] or "").split("/")[0])
+        provider = (r["provider_model"] or "unknown").split("/")[0] if r["backend"] == "native" else "openrouter"
+        key = (r["backend"], provider)
         started = datetime.fromisoformat(r["ts"])
         gap = (started - previous[key]).total_seconds() if key in previous else None
         previous[key] = started

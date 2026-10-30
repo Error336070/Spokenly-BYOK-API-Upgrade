@@ -62,3 +62,5 @@ def test_failed_request_keeps_observed_connection(cfg, provider, failure):
         response = c.post("/v1/audio/transcriptions", data={"model": name}, files={"file": ("x.wav", make_wav())})
         assert response.status_code in (502, 504)
         assert c.app.state.db._conn.execute("SELECT new_connection FROM requests").fetchone() == (1,)
+        model = c.app.state.db._conn.execute("SELECT provider_model FROM requests").fetchone()[0]
+        assert model and model.startswith(provider if provider != "openrouter" else "openai/")

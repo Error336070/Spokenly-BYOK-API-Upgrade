@@ -293,6 +293,15 @@ def create_app(cfg: dict, backends: dict | None = None, config_path: Path | None
             "clip_path": str(clip_path) if clip_path else None,
             "details": json.dumps(details) if details else None,
         }
+        if route["backend"] == "openrouter":
+            row["provider_model"] = route["openrouter"]["model"]
+        else:
+            native = route.get("native", {})
+            if native.get("provider") == "assemblyai":
+                row["provider_model"] = "assemblyai/" + native.get("model", "universal-3-5-pro")
+            elif native.get("provider") == "azure":
+                mode = native.get("body", {}).get("enhancedMode", {})
+                row["provider_model"] = f"azure/{mode.get('model', 'azure-speech')}"
 
         backend = app.state.backends.get(route["backend"])
         failed_metadata = {"route": route_name, "language": language}
