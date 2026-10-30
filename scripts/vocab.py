@@ -56,7 +56,7 @@ def cmd_usage(args):
 def cmd_suggest(args):
     texts = transcripts()
     vocabulary = load_config().get("vocabulary") or []
-    vocab_keys = {re.sub(r"[\s\-]", "", v.lower()) for v in load_config().get("vocabulary") or []}
+    vocab_keys = {re.sub(r"[\s\-]", "", v.lower()) for v in vocabulary}
     names = Counter()
     forms = defaultdict(Counter)
     fuzzy = defaultdict(Counter)
@@ -68,22 +68,21 @@ def cmd_suggest(args):
                 camel = bool(re.search(r"[a-z][A-Z]|[A-Z]{2,}[a-z]|\d", w))
                 if (camel or (i > 0 and w[0].isupper())) and w not in COMMON and len(w) > 2:
                     dictation_names.add(w)
-            # spelling variants: single words and adjacent pairs, keyed without spaces/hyphens
+            # Spelling variants use groups of up to three words, keyed without spaces or hyphens.
             for n in (1, 2, 3):
                 for i in range(len(words) - n + 1):
                     surface = " ".join(words[i:i + n])
                     key = re.sub(r"[\s\-]", "", surface.lower())
-                    if len(key) >= 5:
-                        dictation_forms.add((key, surface))
+                    dictation_forms.add((key, surface))
         names.update(dictation_names)
         for key, surface in dictation_forms:
             forms[key][surface] += 1
         for term in vocabulary:
             canonical = re.sub(r"[\s\-]", "", term.lower())
             matches = [(SequenceMatcher(None, canonical, key).ratio(), surface)
-                       for key, surface in dictation_forms if surface.lower() != term.lower()]
+                       for key, surface in dictation_forms if flat(term) not in flat(surface)]
             if matches:
-                score, surface = max(matches, key=lambda pair: (pair[0], -len(pair[1])))
+                score, surface = max(matches, key=lambda pair: (pair[0], -len(pair[1]), pair[1]))
                 if score >= 0.8:
                     fuzzy[term][surface] += 1
 
