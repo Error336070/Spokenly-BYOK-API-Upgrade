@@ -40,10 +40,23 @@ def create_app(cfg: dict, backends: dict | None = None, config_path: Path | None
     bg_tasks: set[asyncio.Task] = set()
     notifier = notifier or Notifier(cfg)
 
-    def spawn(coro):
+    loops = {}
+
+    def background_failure(name, exc):
+        log.error("background %s failed: %s", name, exc, exc_info=(type(exc), exc, exc.__traceback__))
+        notifier.background_error(name, str(exc))
+
+    def spawn(coro, loop=False):
         task = asyncio.create_task(coro)
         bg_tasks.add(task)
-        task.add_done_callback(bg_tasks.discard)
+        if loop:
+            loops[coro.cr_code.co_name] = task
+
+        def done(task):
+            bg_tasks.discard(task)
+            if not task.cancelled() and task.exception() is not None:
+                background_failure(task.get_coro().cr_code.co_name, task.exception())
+        task.add_done_callback(done)
 
     async def db_write(method, *args, **kwargs):
         try:
@@ -85,42 +98,46 @@ def create_app(cfg: dict, backends: dict | None = None, config_path: Path | None
         return tuple(p.stat().st_mtime if p.exists() else None for p in paths)
 
     async def watch_config():
-        last = watched_mtimes()
+        last = None
         while True:
-            await asyncio.sleep(watch_interval_s)
             try:
-                if watched_mtimes() == last:
-                    continue
-                await asyncio.sleep(0.3)  # let editors finish writing
-                last = watched_mtimes()
-            except OSError:
-                continue
-            reload_config()
-            last = watched_mtimes()  # the vocabulary file path may have changed with the config
+                current = watched_mtimes()
+                if last is None:
+                    last = current
+                elif current != last:
+                    await asyncio.sleep(0.3)  # let editors finish writing
+                    reload_config()
+                    last = watched_mtimes()
+            except Exception as e:
+                background_failure("watch_config", e)
+            await asyncio.sleep(watch_interval_s)
 
     async def keep_warm():
         """Ping the backends in use only while you're actively dictating, so a pause doesn't cost a reconnect."""
         while True:
-            kw = cfg.get("keep_warm") or {}
-            await asyncio.sleep(kw.get("interval_s", 120))
-            if not kw.get("enabled", True) or state.get("last_request") is None:
-                continue
-            if time.monotonic() - state["last_request"] > kw.get("active_window_min", 30) * 60:
-                continue
-            for name in {r["backend"] for r in cfg["routes"].values()}:
-                b = app.state.backends.get(name)
-                if b is not None and hasattr(b, "warmup"):
-                    try:
+            interval = 120
+            try:
+                kw = cfg.get("keep_warm") or {}
+                interval = kw.get("interval_s", 120)
+                await asyncio.sleep(interval)
+                if not kw.get("enabled", True) or state.get("last_request") is None:
+                    continue
+                if time.monotonic() - state["last_request"] > min(kw.get("active_window_min", 30), 30) * 60:
+                    continue
+                for name in {r["backend"] for r in cfg["routes"].values()}:
+                    b = app.state.backends.get(name)
+                    if b is not None and hasattr(b, "warmup"):
                         await b.warmup()
-                    except Exception as e:
-                        log.debug("keep-warm %s failed: %s", name, e)
+            except Exception as e:
+                background_failure("keep_warm", e)
+                await asyncio.sleep(interval)
 
     async def periodic_cleanup():
         while True:
             try:
                 await asyncio.to_thread(cleanup, cfg, app.state.db)
-            except Exception:
-                log.exception("retention cleanup failed")
+            except Exception as e:
+                background_failure("periodic_cleanup", e)
             await asyncio.sleep(6 * 3600)
 
     @asynccontextmanager
@@ -133,13 +150,15 @@ def create_app(cfg: dict, backends: dict | None = None, config_path: Path | None
             app.state.backends = backends
         app.state.db = await asyncio.to_thread(RequestLog, cfg["logging"]["db_path"])
         app.state.notifier = notifier
-        spawn(periodic_cleanup())
-        spawn(keep_warm())
+        spawn(periodic_cleanup(), loop=True)
+        spawn(keep_warm(), loop=True)
         if config_path:
-            spawn(watch_config())
+            spawn(watch_config(), loop=True)
         yield
-        for t in bg_tasks:
+        pending = list(bg_tasks)
+        for t in pending:
             t.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)
         for b in app.state.backends.values():
             await b.aclose()
 
@@ -177,7 +196,9 @@ def create_app(cfg: dict, backends: dict | None = None, config_path: Path | None
 
     @app.get("/health")
     async def health():
-        return {"status": "ok", "routes": list(cfg["routes"]), "default_route": cfg["default_route"]}
+        return {"status": "ok" if all(not t.done() for t in loops.values()) else "degraded",
+                "routes": list(cfg["routes"]), "default_route": cfg["default_route"],
+                "background": {name: "stopped" if t.done() else "running" for name, t in loops.items()}}
 
     @app.get("/v1/models")
     async def models(request: Request):

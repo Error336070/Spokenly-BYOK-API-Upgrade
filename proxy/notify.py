@@ -74,5 +74,8 @@ class Notifier:
         elif self.consecutive >= (self.cfg.get("notifications") or {}).get("consecutive_errors", 3):
             self._notify("repeated", f"{self.consecutive} failed requests in a row", message)
 
+    def background_error(self, name: str, message: str) -> None:
+        self._notify(f"background-{name}", "Background task failed", f"{name}: {message}")
+
     def config_error(self, message: str) -> None:
         self._notify("config", "config.yaml has an error; keeping the previous config", message)

@@ -262,6 +262,7 @@ The proxy shows a Windows notification in these cases:
 - A route on the provider's own API is rejected. The notification says to switch that route back to `openrouter`, which is what you want when free credits run out.
 - Three requests in a row fail.
 - A config edit is invalid.
+- A background task fails. Loop iterations log the error and continue. `/health` includes each loop state.
 
 You get at most one notification of each kind every 10 minutes.
 
