@@ -36,6 +36,8 @@ def test_credit_loop_checks_at_start_and_notifies(cfg):
     with TestClient(create_app(cfg, backends={"openrouter": backend},
                               notifier=Notifier(cfg, send=lambda t, b: sent.append(t))),
                     base_url="http://127.0.0.1:18765"):
-        time.sleep(0.08)
+        deadline = time.monotonic() + 2
+        while (len(seen) < 2 or not sent) and time.monotonic() < deadline:
+            time.sleep(0.01)
         assert len(seen) >= 2
         assert len(sent) == 1 and "credit" in sent[0]

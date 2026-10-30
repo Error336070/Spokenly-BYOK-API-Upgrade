@@ -70,7 +70,9 @@ def test_keep_warm_only_while_active(cfg):  # noqa: F811
         time.sleep(0.2)
         assert b.warmups == 0                      # no dictation yet: stay quiet
         c.post("/v1/audio/transcriptions", files={"file": ("a.wav", make_wav(), "audio/wav")})
-        time.sleep(0.3)
+        deadline = time.monotonic() + 2
+        while b.warmups < 2 and time.monotonic() < deadline:
+            time.sleep(0.01)
         assert b.warmups >= 2                      # active: pings
         cfg["keep_warm"]["active_window_min"] = 0  # window passed (hot-reload style change)
         time.sleep(0.1)

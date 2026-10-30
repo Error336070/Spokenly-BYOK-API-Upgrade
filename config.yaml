@@ -25,8 +25,10 @@ credit:
   enabled: true          # GET OpenRouter /key at startup and periodically; no transcription charge
   interval_s: 14400      # check every 4 hours
   low_usd: 1             # toast below this remaining key budget; null/unlimited is unknown
-  assemblyai_hourly_rate_usd: null # set your rate for the stats estimate; no price is assumed
-  assemblyai_starting_credit_usd: null # set your initial credit; estimate subtracts retained successful usage
+  # Sync API price from assemblyai.com/products/sync-speech-to-text (2026-10-30), keyterms included.
+  # A third-party report says it dropped to 0.30 on 2026-10-25; 0.45 keeps the estimate on the safe side.
+  assemblyai_hourly_rate_usd: 0.45
+  assemblyai_starting_credit_usd: 200  # free credits on this account; new accounts get 50
 
 timeouts:
   connect_s: 5

@@ -10,6 +10,14 @@ from proxy.notify import Notifier
 from tests.test_translate import cfg, make_wav  # noqa: F401
 
 
+def wait_until(pred, timeout=2):
+    """Poll instead of a fixed sleep, so a busy machine doesn't fail the test."""
+    deadline = time.monotonic() + timeout
+    while not pred() and time.monotonic() < deadline:
+        time.sleep(0.01)
+    return pred()
+
+
 def test_watcher_recovers_after_initial_stat_error(cfg, monkeypatch, tmp_path):
     path = tmp_path / "Zyntrabox.yaml"
     path.write_text("x")
@@ -26,8 +34,7 @@ def test_watcher_recovers_after_initial_stat_error(cfg, monkeypatch, tmp_path):
     monkeypatch.setattr(Path, "stat", stat)
     cfg["notifications"]["enabled"] = False
     with TestClient(create_app(cfg, backends={}, config_path=path, watch_interval_s=0.01), base_url="http://127.0.0.1:18765") as c:
-        time.sleep(0.1)
-        assert len(calls) > 1
+        assert wait_until(lambda: len(calls) > 1)
         assert c.get("/health").json()["background"]["watch_config"] == "running"
 
 
@@ -44,5 +51,4 @@ def test_unexpected_task_failure_logs_and_notifies(cfg):
     with TestClient(create_app(cfg, backends={"openrouter": backend},
                               notifier=Notifier(cfg, send=lambda t, b: sent.append(t))), base_url="http://127.0.0.1:18765") as c:
         c.post("/v1/audio/transcriptions", files={"file": ("a.wav", make_wav())})
-        time.sleep(0.05)
-        assert any("Background task failed" in t for t in sent)
+        assert wait_until(lambda: any("Background task failed" in t for t in sent))
