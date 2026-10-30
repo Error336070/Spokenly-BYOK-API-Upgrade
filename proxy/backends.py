@@ -1,5 +1,6 @@
 """Provider backends. Each keeps pooled keep-alive HTTP clients."""
 import asyncio
+import copy
 import json
 import math
 import time
@@ -133,11 +134,12 @@ class OpenRouterBackend:
         )
 
     async def transcribe(self, audio: bytes, fmt: str, route: dict, language: str | None,
-                         audio_duration_s: float | None = None) -> dict:
+                         audio_duration_s: float | None = None, request_cfg: dict | None = None) -> dict:
+        cfg = request_cfg if request_cfg is not None else copy.deepcopy(self.cfg)
         if not self.has_key:
             raise BackendError("OPENROUTER_API_KEY is not set in the proxy's .env file", 500)
-        vocab = self.cfg.get("vocabulary") or []
-        if self.cfg["openrouter"].get("multipart", True):
+        vocab = cfg.get("vocabulary") or []
+        if cfg["openrouter"].get("multipart", True):
             # raw file upload: no base64 inflation (measured ~0.3-1 s faster on 10-55 s clips)
             body = build_openrouter_options(route["openrouter"], language, vocab)
             kw = {"data": openrouter_form_fields(body),
@@ -146,7 +148,7 @@ class OpenRouterBackend:
             body = build_openrouter_body(audio, fmt, route["openrouter"], language, vocab)
             kw = {"json": body}
         connection_info = {}
-        data, latency, headers = await _request(self.client, f"OpenRouter ({body['model']})", self.cfg,
+        data, latency, headers = await _request(self.client, f"OpenRouter ({body['model']})", cfg,
                                                 _OPENROUTER_HINTS, "POST", "/audio/transcriptions",
                                                 audio_duration_s=audio_duration_s, connection_info=connection_info, **kw)
         out = _parse(parse_openrouter_response, data, "OpenRouter")
@@ -197,33 +199,34 @@ class NativeBackend:
             self.clients[provider] = httpx.AsyncClient(limits=_LIMITS, transport=self.transport)
         return self.clients[provider]
 
-    def _settings(self, provider: str) -> dict:
-        return (self.cfg.get("native") or {}).get(provider) or {}
+    def _settings(self, provider: str, cfg: dict | None = None) -> dict:
+        return ((cfg if cfg is not None else self.cfg).get("native") or {}).get(provider) or {}
 
     async def transcribe(self, audio: bytes, fmt: str, route: dict, language: str | None,
-                         audio_duration_s: float | None = None) -> dict:
+                         audio_duration_s: float | None = None, request_cfg: dict | None = None) -> dict:
+        cfg = request_cfg if request_cfg is not None else copy.deepcopy(self.cfg)
         n = route.get("native")
         if not n:
             raise BackendError("this route has no native: block in config.yaml", 501)
         handler = {"assemblyai": self._assemblyai, "azure": self._azure}.get(n.get("provider"))
         if handler is None:
             raise BackendError(f"native provider '{n.get('provider')}' is not implemented", 501)
-        payload = build_native_payload(n, self.cfg.get("vocabulary") or [])
-        out = await handler(audio, fmt, n, payload, language, audio_duration_s)
+        payload = build_native_payload(n, cfg.get("vocabulary") or [])
+        out = await handler(audio, fmt, n, payload, language, audio_duration_s, cfg)
         out.setdefault("cost", None)
         return out
 
-    async def _assemblyai(self, audio, fmt, n, config, language, audio_duration_s):
+    async def _assemblyai(self, audio, fmt, n, config, language, audio_duration_s, cfg):
         key = self.keys.get("assemblyai")
         if not key:
             raise BackendError("ASSEMBLYAI_API_KEY is not set in the proxy's .env file", 500)
-        s = self._settings("assemblyai")
+        s = self._settings("assemblyai", cfg)
         model = n.get("model", "universal-3-5-pro")
         if language:
             config.setdefault("language_codes", language)
         connection_info = {}
         data, latency, _ = await _request(
-            self._client("assemblyai"), f"AssemblyAI ({model})", self.cfg,
+            self._client("assemblyai"), f"AssemblyAI ({model})", cfg,
             {401: " (check ASSEMBLYAI_API_KEY in .env)", 429: " (rate limited; try again shortly)"},
             "POST", s.get("base_url", "https://sync.eu.assemblyai.com").rstrip("/") + "/v1/transcribe",
             audio_duration_s=audio_duration_s, connection_info=connection_info,
@@ -234,20 +237,20 @@ class NativeBackend:
         out.update(new_connection=connection_info.get("new_connection"), provider_latency_ms=latency, provider_model=f"assemblyai/{model}")
         return out
 
-    async def _azure(self, audio, fmt, n, definition, language, audio_duration_s):
+    async def _azure(self, audio, fmt, n, definition, language, audio_duration_s, cfg):
         key = self.keys.get("azure")
         endpoint = self.keys.get("azure_endpoint") or (
             f"https://{self.keys['azure_region']}.api.cognitive.microsoft.com" if self.keys.get("azure_region") else "")
         if not key or not endpoint:
             raise BackendError("AZURE_SPEECH_KEY and AZURE_SPEECH_REGION (or AZURE_SPEECH_ENDPOINT) "
                                "must be set in the proxy's .env file", 500)
-        s = self._settings("azure")
+        s = self._settings("azure", cfg)
         if language:
             definition.setdefault("locales", [language])
         model = (definition.get("enhancedMode") or {}).get("model", "azure-speech")
         connection_info = {}
         data, latency, _ = await _request(
-            self._client("azure"), f"Azure Speech ({model})", self.cfg,
+            self._client("azure"), f"Azure Speech ({model})", cfg,
             {401: " (check AZURE_SPEECH_KEY and the region in .env)", 429: " (rate limited; try again shortly)"},
             "POST", endpoint.rstrip("/") + "/speechtotext/transcriptions:transcribe",
             audio_duration_s=audio_duration_s, connection_info=connection_info,

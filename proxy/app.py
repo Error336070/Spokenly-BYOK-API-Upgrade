@@ -1,5 +1,6 @@
 """FastAPI app: OpenAI-compatible /v1/audio/transcriptions in front of STT providers."""
 import asyncio
+import copy
 import json
 import logging
 import time
@@ -65,9 +66,9 @@ def create_app(cfg: dict, backends: dict | None = None, config_path: Path | None
             log.exception("request-log write failed")
             return None
 
-    async def save_clip(audio, fmt, failed=None):
+    async def save_clip(audio, fmt, settings, failed=None):
         def write():
-            d = Path(cfg["logging"].get("failed_clips_dir", "data/failed") if failed else cfg["logging"]["clips_dir"])
+            d = Path(settings["logging"].get("failed_clips_dir", "data/failed") if failed else settings["logging"]["clips_dir"])
             d.mkdir(parents=True, exist_ok=True)
             path = d / f"{datetime.now():%Y%m%d-%H%M%S}-{uuid.uuid4().hex[:6]}.{fmt}"
             path.write_bytes(audio)
@@ -90,6 +91,13 @@ def create_app(cfg: dict, backends: dict | None = None, config_path: Path | None
         if new["server"] != cfg["server"]:
             log.warning("server host/port changes need a restart; ignoring them until then")
             new["server"] = cfg["server"]
+        for key in ("base_url", "app_title", "app_referer"):
+            if new["openrouter"][key] != cfg["openrouter"][key]:
+                log.warning("openrouter.%s needs a restart; keeping its current value", key)
+                new["openrouter"][key] = cfg["openrouter"][key]
+        if new["logging"]["db_path"] != cfg["logging"]["db_path"]:
+            log.warning("logging.db_path needs a restart; keeping its current value")
+            new["logging"]["db_path"] = cfg["logging"]["db_path"]
         cfg.clear()
         cfg.update(new)
         log.info("config reloaded: %d routes, default %s", len(cfg["routes"]), cfg["default_route"])
@@ -210,9 +218,9 @@ def create_app(cfg: dict, backends: dict | None = None, config_path: Path | None
         if got != expected:
             raise HTTPException(401, "invalid API key for Dictation Proxy")
 
-    async def fetch_generation_stats(backend, row_id: int, gen_id: str):
+    async def fetch_generation_stats(backend, row_id: int, gen_id: str, settings):
         """OpenRouter's own latency and provider name, which separates model time from routing/upload."""
-        for delay in cfg["openrouter"].get("generation_stats_delays_s", [5, 5, 10, 20]):
+        for delay in settings["openrouter"].get("generation_stats_delays_s", [5, 5, 10, 20]):
             await asyncio.sleep(delay)
             d = await backend.generation(gen_id)
             if d:
@@ -235,6 +243,7 @@ def create_app(cfg: dict, backends: dict | None = None, config_path: Path | None
 
     @app.post("/v1/audio/transcriptions")
     async def transcriptions(request: Request):
+        settings = copy.deepcopy(cfg)
         t0 = time.perf_counter()
         check_auth(request)
         try:
@@ -252,15 +261,15 @@ def create_app(cfg: dict, backends: dict | None = None, config_path: Path | None
         fields = {k: v for k, v in form.items() if k != "file"}
 
         requested = str(fields.get("model") or "")
-        route_name = requested if requested in cfg["routes"] else cfg["default_route"]
-        route = cfg["routes"][route_name]
-        language = str(fields.get("language") or cfg.get("language") or "") or None
+        route_name = requested if requested in settings["routes"] else settings["default_route"]
+        route = settings["routes"][route_name]
+        language = str(fields.get("language") or settings.get("language") or "") or None
         fmt = sniff_format(audio, upload.filename or "", upload.content_type or "")
         winfo = wav_info(audio) if fmt == "wav" else None
 
         state["count"] += 1
         details = None
-        if state["count"] <= cfg["logging"]["detail_first_n"]:
+        if state["count"] <= settings["logging"]["detail_first_n"]:
             details = {
                 "headers": {k: ("<redacted>" if k.lower() in _REDACT else v)
                             for k, v in request.headers.items()},
@@ -273,8 +282,8 @@ def create_app(cfg: dict, backends: dict | None = None, config_path: Path | None
             log.info("request detail #%d: %s", state["count"], json.dumps(details))
 
         clip_path = None
-        if cfg["logging"]["save_audio"]:
-            clip_path = await save_clip(audio, fmt)
+        if settings["logging"]["save_audio"]:
+            clip_path = await save_clip(audio, fmt, settings)
 
         row = {
             "ts": datetime.now().isoformat(timespec="milliseconds"),
@@ -289,18 +298,18 @@ def create_app(cfg: dict, backends: dict | None = None, config_path: Path | None
         failed_metadata = {"route": route_name, "language": language}
         try:
             t_enc = time.perf_counter()
-            send_audio, send_fmt = await asyncio.to_thread(prepare_upload, audio, fmt, cfg)
+            send_audio, send_fmt = await asyncio.to_thread(prepare_upload, audio, fmt, settings)
             row.update(sent_format=send_fmt, sent_bytes=len(send_audio), encode_ms=_ms(t_enc))
             if backend is None:
                 raise BackendError(f"backend '{route['backend']}' for route '{route_name}' is not "
                                    f"implemented yet; switch it to openrouter in config.yaml", 501)
             result = await backend.transcribe(send_audio, send_fmt, route, language,
-                                              audio_duration_s=row["audio_duration_s"])
+                                              audio_duration_s=row["audio_duration_s"], request_cfg=settings)
         except Exception as e:
             if not isinstance(e, BackendError):
                 log.exception("unexpected error in route %s", route_name)
                 e = BackendError(f"Dictation Proxy internal error: {type(e).__name__}: {e}", 500, repr(e))
-            row["clip_path"] = await save_clip(audio, fmt, failed_metadata)
+            row["clip_path"] = await save_clip(audio, fmt, settings, failed_metadata)
             row.update(status="error", http_status=e.status, error=e.detail, total_latency_ms=_ms(t0))
             await db_write(app.state.db.insert, row)
             notifier.error(route_name, str(e), getattr(e, "upstream_status", None), route["backend"])
@@ -316,7 +325,7 @@ def create_app(cfg: dict, backends: dict | None = None, config_path: Path | None
             transcript=result["text"], total_latency_ms=_ms(t0),
         )
         if not result["text"] and (duration or 0) > 2:
-            row["clip_path"] = await save_clip(audio, fmt, failed_metadata)
+            row["clip_path"] = await save_clip(audio, fmt, settings, failed_metadata)
         row_id = await db_write(app.state.db.insert, row)
         notifier.success()
         log.info("%s/%s %.1fs audio, read %.0f ms, provider %.0f ms, total %.0f ms, cost %s: %s",
@@ -324,7 +333,7 @@ def create_app(cfg: dict, backends: dict | None = None, config_path: Path | None
                  row["total_latency_ms"], row["cost"], result["text"][:120])
 
         if row_id is not None and row["generation_id"] and hasattr(backend, "generation"):
-            spawn(fetch_generation_stats(backend, row_id, row["generation_id"]))
+            spawn(fetch_generation_stats(backend, row_id, row["generation_id"], settings))
 
         body, media_type = format_response(result["text"], str(fields.get("response_format") or ""),
                                            duration, result.get("language"))

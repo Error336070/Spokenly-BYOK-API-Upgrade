@@ -170,7 +170,7 @@ OpenRouter drops option keys it doesn't recognize without an error. I checked ea
 
 ## Configuration
 
-The proxy reads three files. It reloads `config.yaml` and `vocabulary.txt` within a second of a save. Reload validation checks types, bounds, backend names and request bodies with the current vocabulary. `logging.retention_days: 0` keeps rows and clips. If an edit is invalid, it keeps the previous version and shows a notification with the error.
+The proxy reads three files. It reloads `config.yaml` and `vocabulary.txt` within a second of a save. Each dictation uses one snapshot for routing, encoding, vocabulary, provider settings and timeouts. Server host/port, `logging.db_path`, OpenRouter `base_url`, `app_title` and `app_referer`, and log-file rotation retention need a restart. Reload keeps the current startup-only values until then. Reload validation checks types, bounds, backend names and request bodies with the current vocabulary. `logging.retention_days: 0` keeps rows and clips. If an edit is invalid, it keeps the previous version and shows a notification with the error.
 
 | File | In git | Contents |
 |---|:---:|---|

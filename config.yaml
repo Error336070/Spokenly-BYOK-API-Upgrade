@@ -5,7 +5,7 @@ server:
   host: 127.0.0.1        # never change to 0.0.0.0
   port: 8765
 
-# Edits to this file apply within ~1 s without a restart (except server host/port).
+# Edits to this file apply within ~1 s without a restart (except server host/port, logging.db_path, log rotation retention and OpenRouter client URL/headers).
 # An invalid edit is ignored (the previous config stays) and shows a toast.
 
 default_route: mai-clean
