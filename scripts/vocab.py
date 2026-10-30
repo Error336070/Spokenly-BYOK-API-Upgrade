@@ -39,6 +39,17 @@ def flat(s: str) -> str:
     return " " + " ".join(t.strip(".'") for t in re.findall(r"[a-z0-9@.']+", s.lower().replace("-", " "))) + " "
 
 
+def word_groups(text):
+    groups = set()
+    for sentence in re.split(r"[.!?\n]", text):
+        words = re.findall(r"[A-Za-z][\w'\-]*", sentence)
+        for size in (1, 2, 3):
+            for i in range(len(words) - size + 1):
+                surface = " ".join(words[i:i + size])
+                groups.add((re.sub(r"[\s\-]", "", surface.lower()), surface))
+    return groups
+
+
 def cmd_usage(args):
     texts = [flat(t) for t in transcripts()]
     cfg = load_config()
@@ -68,19 +79,17 @@ def cmd_suggest(args):
                 camel = bool(re.search(r"[a-z][A-Z]|[A-Z]{2,}[a-z]|\d", w))
                 if (camel or (i > 0 and w[0].isupper())) and w not in COMMON and len(w) > 2:
                     dictation_names.add(w)
-            # Spelling variants use groups of up to three words, keyed without spaces or hyphens.
-            for n in (1, 2, 3):
-                for i in range(len(words) - n + 1):
-                    surface = " ".join(words[i:i + n])
-                    key = re.sub(r"[\s\-]", "", surface.lower())
-                    dictation_forms.add((key, surface))
+            dictation_forms.update(word_groups(sent))
         names.update(dictation_names)
         for key, surface in dictation_forms:
             forms[key][surface] += 1
         for term in vocabulary:
             canonical = re.sub(r"[\s\-]", "", term.lower())
+            pattern = r"(?<!\w)" + r"[\s-]+".join(re.escape(w) for w in flat(term).split()) + r"(?!\w)"
+            # Remove the complete occurrence before forming windows, including any partial windows.
+            remaining = re.sub(pattern, ". ", t, flags=re.IGNORECASE)
             matches = [(SequenceMatcher(None, canonical, key).ratio(), surface)
-                       for key, surface in dictation_forms if flat(term) not in flat(surface)]
+                       for key, surface in word_groups(remaining)]
             if matches:
                 score, surface = max(matches, key=lambda pair: (pair[0], -len(pair[1]), pair[1]))
                 if score >= 0.8:

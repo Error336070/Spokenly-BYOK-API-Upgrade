@@ -35,3 +35,17 @@ def test_short_vocabulary_can_have_misheard_variants(monkeypatch, capsys):
     monkeypatch.setattr(vocab, "transcripts", lambda: ["Use Zynn."] * 2)
     vocab.cmd_suggest(Namespace(min=2))
     assert "Zynn (2) may be Zyn" in capsys.readouterr().out
+
+
+def test_correct_multiword_occurrences_are_excluded(monkeypatch, capsys):
+    monkeypatch.setattr(vocab, "load_config", lambda: {"vocabulary": ["Zyntrabox Pro"]})
+    monkeypatch.setattr(vocab, "transcripts", lambda: ["Use Zyntrabox Pro now."] * 2)
+    vocab.cmd_suggest(Namespace(min=2))
+    assert "may be Zyntrabox Pro" not in capsys.readouterr().out
+
+
+def test_misheard_term_remains_when_exact_term_also_occurs(monkeypatch, capsys):
+    monkeypatch.setattr(vocab, "load_config", lambda: {"vocabulary": ["Zyntrabox Pro"]})
+    monkeypatch.setattr(vocab, "transcripts", lambda: ["Use Zyntrabox Pro and Zintrabox Pro."] * 2)
+    vocab.cmd_suggest(Namespace(min=2))
+    assert "Zintrabox Pro (2) may be Zyntrabox Pro" in capsys.readouterr().out
