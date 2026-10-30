@@ -81,5 +81,14 @@ def wav_info(data: bytes) -> dict | None:
                 "bits": w.getsampwidth() * 8,
                 "duration_s": round(frames / rate, 3) if rate else None,
             }
-    except (wave.Error, EOFError):
-        return None
+    except (wave.Error, EOFError, RuntimeError, ValueError, OSError):
+        pass
+    if soundfile is not None:
+        try:
+            info = soundfile.info(io.BytesIO(data))
+            bits = {"PCM_U8": 8, "PCM_16": 16, "PCM_24": 24, "PCM_32": 32, "FLOAT": 32, "DOUBLE": 64}
+            return {"sample_rate": info.samplerate, "channels": info.channels,
+                    "bits": bits.get(info.subtype), "duration_s": round(info.duration, 3)}
+        except (RuntimeError, ValueError, OSError):
+            pass
+    return None

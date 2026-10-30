@@ -1,8 +1,11 @@
 import json
+import io
+import struct
 from pathlib import Path
 
 import httpx
 import pytest
+import soundfile
 from fastapi.testclient import TestClient
 
 from proxy.app import create_app
@@ -23,3 +26,28 @@ def test_failed_or_long_empty_clip_saved(cfg, tmp_path, status, text):
         saved = Path(c.app.state.db._conn.execute("SELECT clip_path FROM requests").fetchone()[0])
         assert saved.read_bytes() == audio
         assert json.loads(saved.with_suffix(saved.suffix + ".json").read_text())["route"] == "gpt"
+
+
+def test_float_wav_duration_scales_deadline_and_saves_silence(cfg):
+    source = io.BytesIO()
+    soundfile.write(source, [0.2] * 1920000, 16000, format="WAV", subtype="FLOAT")
+    timeouts = []
+    backend = OpenRouterBackend(cfg, "k", httpx.MockTransport(
+        lambda r: timeouts.append(r.extensions["timeout"]["read"]) or httpx.Response(200, json={"text": ""})))
+    with TestClient(create_app(cfg, backends={"openrouter": backend}), base_url="http://127.0.0.1:18765") as c:
+        c.post("/v1/audio/transcriptions", files={"file": ("x.wav", source.getvalue())})
+        duration, path = c.app.state.db._conn.execute("SELECT audio_duration_s, clip_path FROM requests").fetchone()
+        assert duration == 120
+        assert Path(path).read_bytes() == source.getvalue()
+    assert timeouts == [28]
+
+
+def test_malformed_wav_metadata_preserves_failed_audio(cfg):
+    payload = b"WAVEJUNK" + struct.pack("<I", 1000) + b"x"
+    audio = b"RIFF" + struct.pack("<I", len(payload)) + payload
+    backend = OpenRouterBackend(cfg, "k", httpx.MockTransport(lambda r: httpx.Response(502)))
+    with TestClient(create_app(cfg, backends={"openrouter": backend}), base_url="http://127.0.0.1:18765") as c:
+        response = c.post("/v1/audio/transcriptions", files={"file": ("x.wav", audio)})
+        assert response.status_code == 502
+        path = c.app.state.db._conn.execute("SELECT clip_path FROM requests").fetchone()[0]
+        assert Path(path).read_bytes() == audio
