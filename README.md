@@ -1,27 +1,17 @@
 <p align="center">
-  <img src="docs/assets/banner.svg" alt="Spokenly BYOK API Upgrade. A local speech-to-text proxy for Spokenly." width="100%">
+  <img src="docs/assets/banner.svg" alt="Spokenly BYOK API Upgrade. A recorded command, Open the OpenRouter dashboard, is aligned word by word under its waveform, and the transcript arrives 200 ms after the key is released." width="100%">
 </p>
 
 <p align="center">
-  <a href="https://www.python.org/"><img src="https://img.shields.io/badge/python-3.10+-A78BFA?style=flat-square&labelColor=0A0F1F&logo=python&logoColor=white" alt="Python 3.10+"></a>
-  <a href="https://fastapi.tiangolo.com/"><img src="https://img.shields.io/badge/fastapi-local_proxy-22D3EE?style=flat-square&labelColor=0A0F1F&logo=fastapi&logoColor=white" alt="FastAPI"></a>
-  <a href="#run-it-in-the-background"><img src="https://img.shields.io/badge/windows-10_|_11-818CF8?style=flat-square&labelColor=0A0F1F&logo=windows11&logoColor=white" alt="Windows 10 and 11"></a>
-  <a href="#connect-spokenly"><img src="https://img.shields.io/badge/api-openai_compatible-34D399?style=flat-square&labelColor=0A0F1F&logo=openai&logoColor=white" alt="OpenAI-compatible API"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-F59E0B?style=flat-square&labelColor=0A0F1F" alt="MIT license"></a>
+  <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.10+-486581?style=flat-square&labelColor=102A43&logo=python&logoColor=white" alt="Python 3.10+"></a>
+  <a href="https://fastapi.tiangolo.com/"><img src="https://img.shields.io/badge/FastAPI-local_proxy-486581?style=flat-square&labelColor=102A43&logo=fastapi&logoColor=white" alt="FastAPI"></a>
+  <a href="#run-it-in-the-background"><img src="https://img.shields.io/badge/Windows-10_and_11-486581?style=flat-square&labelColor=102A43&logo=windows11&logoColor=white" alt="Windows 10 and 11"></a>
+  <a href="#connect-spokenly"><img src="https://img.shields.io/badge/API-OpenAI_compatible-486581?style=flat-square&labelColor=102A43&logo=openai&logoColor=white" alt="OpenAI-compatible API"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-E03A3E?style=flat-square&labelColor=102A43" alt="MIT license"></a>
 </p>
 
 <p align="center">
-  <a href="#quick-start"><b>Quick start</b></a>
-  &nbsp;·&nbsp;
-  <a href="#how-it-works"><b>How it works</b></a>
-  &nbsp;·&nbsp;
-  <a href="#benchmarks"><b>Benchmarks</b></a>
-  &nbsp;·&nbsp;
-  <a href="#configuration"><b>Configuration</b></a>
-  &nbsp;·&nbsp;
-  <a href="#tools"><b>Tools</b></a>
-  &nbsp;·&nbsp;
-  <a href="#faq"><b>FAQ</b></a>
+  <a href="#quick-start">Quick start</a>&emsp;&emsp;<a href="#how-it-works">How it works</a>&emsp;&emsp;<a href="#benchmarks">Benchmarks</a>&emsp;&emsp;<a href="#configuration">Configuration</a>&emsp;&emsp;<a href="#tools">Tools</a>&emsp;&emsp;<a href="#faq">FAQ</a>
 </p>
 
 <br>
@@ -111,7 +101,7 @@ I measured everything on my own push-to-talk dictation against EU endpoints in O
 The FLAC upload saved the most time on long recordings, because there is less data to send. Switching to AssemblyAI's own API saved the most on short commands, because it removes OpenRouter's extra hop. Transcripts were identical in every configuration.
 
 <p align="center">
-  <img src="docs/assets/shootout.svg" alt="Scatter chart of word error rate against latency for seven models. AssemblyAI, MAI-Transcribe 2 and GPT Transcribe are fastest and most accurate." width="100%">
+  <img src="docs/assets/shootout.svg" alt="Scatter chart of word error rate against latency for seven models. AssemblyAI, MAI-Transcribe 2 and GPT Transcribe are the most accurate, under 1.1 seconds." width="100%">
 </p>
 
 <details>

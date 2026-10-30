@@ -1,7 +1,10 @@
 """Generate the README's SVG graphics into docs/assets/.
 
-The graphics are plain SVG with CSS and SMIL animation, so GitHub renders and animates them
-inside the README. Edit the data below and re-run:
+Design: a transcription editor's alignment view. Paper-coloured sheets, ink lines, Georgia for words
+that were spoken or written, and one accent, record red, used only for the audio signal.
+The banner is the only animated graphic; the others are static.
+
+Edit the data below and re-run:
 
     .venv\\Scripts\\python.exe docs\\build_assets.py
 """
@@ -10,26 +13,33 @@ from pathlib import Path
 
 OUT = Path(__file__).resolve().parent / "assets"
 
-SANS = "'Segoe UI', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif"
-MONO = "'Cascadia Code', SFMono-Regular, Consolas, Menlo, monospace"
+SERIF = "Georgia, 'Times New Roman', Times, serif"
+SANS = "'Segoe UI', 'Helvetica Neue', Helvetica, Arial, sans-serif"
+MONO = "Consolas, 'SFMono-Regular', Menlo, monospace"
 
-BG0, BG1 = "#0A0F1F", "#151B38"
-CARD, EDGE = "#121933", "#2A3463"
-TEXT, MUTED, FAINT = "#F1F5F9", "#94A3B8", "#475569"
-VIOLET, CYAN, GREEN, AMBER = "#A78BFA", "#22D3EE", "#34D399", "#F59E0B"
+PAPER = "#EEF2F6"
+INK = "#102A43"
+MUTED = "#52667A"
+RULE = "#C5D0DB"
+SLATE = "#486581"
+RED = "#E03A3E"
 
-# AssemblyAI latency (ms), median of 3 runs: before, FLAC upload via OpenRouter, native + FLAC
+# One real benchmark command, laid out as an alignment view: word, start px, end px, syllables
+WORDS = [("Open", 64, 168, 2), ("the", 196, 252, 1), ("OpenRouter", 282, 586, 4), ("dashboard.", 616, 864, 3)]
+WAVE_X0, WAVE_X1, CLIP_SECONDS, RELEASE_X = 64, 864, 2.6, 900
+
+# AssemblyAI latency (ms), median of 3 runs: before, FLAC upload via OpenRouter, AssemblyAI API with FLAC
 SPEED = [
-    ("Short command", "2 to 4 s of audio", 640, 340, 200),
-    ("Typical dictation", "12 s of audio", 969, 636, 551),
-    ("Long paragraph", "55 s of audio", 3254, 1631, 1371),
+    ("Short command", "2 to 4 seconds of audio", 640, 340, 200),
+    ("Dictation", "12 seconds of audio", 969, 636, 551),
+    ("Paragraph", "55 seconds of audio", 3254, 1631, 1371),
 ]
 
-# Shootout via OpenRouter: name, median latency ms, WER %, fillers kept, kept in config, label placement
+# Shootout via OpenRouter: name, median latency ms, WER %, fillers kept, kept in config, label side
 SHOOTOUT = [
-    ("AssemblyAI", 638, 1.9, 1, True, "right"),
+    ("AssemblyAI", 638, 1.9, 1, True, "left"),
     ("MAI-Transcribe 2", 1042, 2.5, 0, True, "right-low"),
-    ("GPT Transcribe", 964, 3.2, 0, True, "left-high"),
+    ("GPT Transcribe", 964, 3.2, 0, True, "left"),
     ("Voxtral Mini", 630, 5.1, 5, False, "left"),
     ("Voxtral Small", 1095, 5.7, 3, False, "right"),
     ("Scribe v2", 1017, 5.7, 0, False, "left-high"),
@@ -37,268 +47,256 @@ SHOOTOUT = [
 ]
 
 
-def frame(w, h, title, desc, body, extra_defs="", style=""):
+def frame(w, h, title, desc, body, style="", defs=""):
     return f"""<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}" viewBox="0 0 {w} {h}" role="img" aria-labelledby="title desc">
 <title id="title">{title}</title>
 <desc id="desc">{desc}</desc>
-<defs>
-  <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="{BG0}"/><stop offset="1" stop-color="{BG1}"/></linearGradient>
-  <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="{VIOLET}"/><stop offset="1" stop-color="{CYAN}"/></linearGradient>
-  <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse"><path d="M32 0H0V32" fill="none" stroke="#FFFFFF" stroke-opacity="0.035"/></pattern>
-  <radialGradient id="glowV" cx="0.5" cy="0.5" r="0.5"><stop offset="0" stop-color="#7C3AED" stop-opacity="0.32"/><stop offset="1" stop-color="#7C3AED" stop-opacity="0"/></radialGradient>
-  <radialGradient id="glowC" cx="0.5" cy="0.5" r="0.5"><stop offset="0" stop-color="#0891B2" stop-opacity="0.26"/><stop offset="1" stop-color="#0891B2" stop-opacity="0"/></radialGradient>
-  <clipPath id="round"><rect width="{w}" height="{h}" rx="22"/></clipPath>
-  {extra_defs}
-</defs>
+<defs>{defs}</defs>
 <style>
-  text {{ font-family: {SANS}; }}
+  text {{ font-family: {SANS}; fill: {INK}; font-variant-numeric: tabular-nums; }}
+  .serif {{ font-family: {SERIF}; }}
   .mono {{ font-family: {MONO}; }}
-  @media (prefers-reduced-motion: reduce) {{ * {{ animation: none !important; }} }}
+  .muted {{ fill: {MUTED}; }}
   {style}
 </style>
-<g clip-path="url(#round)">
-  <rect width="{w}" height="{h}" fill="url(#bg)"/>
-  <rect width="{w}" height="{h}" fill="url(#grid)"/>
-  {body}
-</g>
-<rect x="0.5" y="0.5" width="{w - 1}" height="{h - 1}" rx="22" fill="none" stroke="{EDGE}"/>
+<rect x="1" y="1" width="{w - 2}" height="{h - 2}" rx="14" fill="{PAPER}" stroke="{RULE}" stroke-width="2"/>
+{body}
 </svg>
 """
 
 
-def pill(x, y, text, color):
-    w = len(text) * 8.4 + 34
-    return (f'<g transform="translate({x:.0f} {y})"><rect width="{w:.0f}" height="34" rx="17" fill="{color}" fill-opacity="0.12" '
-            f'stroke="{color}" stroke-opacity="0.45"/><circle cx="17" cy="17" r="4" fill="{color}"/>'
-            f'<text class="mono" x="29" y="22" font-size="14.5" fill="{TEXT}">{text}</text></g>'), w
+def heading(title, sub):
+    return (f'<text class="serif" x="64" y="72" font-size="28" font-weight="700">{title}</text>'
+            f'<text class="muted" x="64" y="102" font-size="15">{sub}</text>')
 
+
+# ----------------------------------------------------------------------------- banner
 
 def banner():
-    bars = []
-    n, x0, step = 34, 70, 13
-    for i in range(n):
-        env = math.sin(math.pi * (i + 0.5) / n) ** 0.8
-        h = 26 + 150 * env * (0.55 + 0.45 * abs(math.sin(i * 1.7)))
-        x = x0 + i * step
-        bars.append(f'<rect class="bar" x="{x}" y="{210 - h / 2:.1f}" width="7" height="{h:.1f}" rx="3.5" '
-                    f'fill="url(#wave)" style="animation-delay:{-(i * 0.09) % 1.6:.2f}s"/>')
-    pills, x = [], 560
-    for text, color in (("~200 ms commands", GREEN), ("up to 3.2x faster", CYAN), ("127.0.0.1 only", VIOLET)):
-        p, w = pill(x, 330, text, color)
-        pills.append(p)
-        x += w + 12
+    period = 6.0                       # seconds per loop
+    sweep = 2.6 / period * 100         # % of the loop the playhead takes to cross the clip
+    width = WAVE_X1 - WAVE_X0
+    wave, cy = [], 282
+
+    def amplitude(x):
+        for _, a, b, syl in WORDS:
+            if a <= x <= b:
+                t = (x - a) / (b - a)
+                env = math.sin(math.pi * t) ** 0.6
+                bumps = abs(math.sin(math.pi * syl * t)) ** 0.7
+                jitter = 0.72 + 0.28 * abs(math.sin(x * 0.91) * math.cos(x * 0.37))
+                return 6 + 52 * env * (0.35 + 0.65 * bumps) * jitter
+        return 2.5
+    for x in range(WAVE_X0, WAVE_X1 + 1, 6):
+        h = amplitude(x)
+        wave.append(f'<rect x="{x}" y="{cy - h:.1f}" width="3" height="{2 * h:.1f}" rx="1.5"/>')
+
+    words, styles = [], []
+    for i, (word, a, b, _) in enumerate(WORDS):
+        seconds = (a - WAVE_X0) / width * CLIP_SECONDS
+        p = (a - WAVE_X0) / width * sweep
+        words.append(f"""
+  <g class="w{i}">
+    <path d="M{a} 352 v-6 H{b} v6" fill="none" stroke="{SLATE}" stroke-width="1.5"/>
+    <text class="serif" x="{a}" y="380" font-size="24">{word}</text>
+    <text class="muted" x="{a}" y="404" font-size="13">{seconds:.2f} s</text>
+  </g>""")
+        styles.append(f".w{i} {{ animation: w{i} {period}s linear infinite; }}"
+                      f"@keyframes w{i} {{ 0%, {p:.1f}% {{ opacity: 0; }} {p + 2:.1f}%, 92% {{ opacity: 1; }} 98%, 100% {{ opacity: 0; }} }}")
+
+    dim_len = 1040 - RELEASE_X
     body = f"""
-  <ellipse cx="290" cy="210" rx="330" ry="230" fill="url(#glowV)"/>
-  <ellipse cx="1120" cy="80" rx="380" ry="220" fill="url(#glowC)"/>
-  <g>{''.join(bars)}</g>
-  <line x1="508" y1="120" x2="508" y2="300" stroke="{EDGE}" stroke-width="1.5"/>
-  <text x="560" y="128" font-size="14" font-weight="600" letter-spacing="3.2" fill="#A5B4FC">LOCAL SPEECH-TO-TEXT PROXY FOR SPOKENLY</text>
-  <text x="556" y="196" font-size="64" font-weight="700" fill="{TEXT}">Spokenly BYOK</text>
-  <text x="556" y="264" font-size="64" font-weight="700" fill="url(#accent)">API Upgrade<tspan class="cursor" fill="{CYAN}" font-weight="300">|</tspan></text>
-  <text x="560" y="304" font-size="20" fill="{MUTED}">Clean, fast dictation through your own API keys.</text>
-  {''.join(pills)}
+  <text class="serif" x="64" y="104" font-size="54" font-weight="700">Spokenly BYOK API Upgrade</text>
+  <text class="muted" x="66" y="146" font-size="20">A local proxy between Spokenly and the speech-to-text provider you choose.</text>
+
+  <circle cx="72" cy="196" r="6" fill="{RED}"/>
+  <text x="88" y="201" font-size="14" font-weight="600" fill="{RED}">Push-to-talk recording</text>
+
+  <g fill="{RULE}">{''.join(wave)}</g>
+  <g clip-path="url(#heard)"><g fill="{INK}">{''.join(wave)}</g></g>
+  <line x1="{WAVE_X0}" x2="{WAVE_X1}" y1="{cy}" y2="{cy}" stroke="{RULE}" stroke-width="1"/>
+  {''.join(words)}
+
+  <g class="playhead"><line x1="{WAVE_X0}" x2="{WAVE_X0}" y1="214" y2="350" stroke="{RED}" stroke-width="2"/>
+    <circle cx="{WAVE_X0}" cy="214" r="4" fill="{RED}"/></g>
+
+  <g class="result">
+    <line x1="{RELEASE_X}" x2="{RELEASE_X}" y1="214" y2="350" stroke="{RED}" stroke-width="2"/>
+    <text x="{RELEASE_X + 12}" y="228" font-size="14" font-weight="600" fill="{RED}">Key released</text>
+    <path class="dim" d="M{RELEASE_X} 300 H1040" fill="none" stroke="{INK}" stroke-width="2" stroke-dasharray="{dim_len}"/>
+    <path d="M1040 290 v20" stroke="{INK}" stroke-width="2"/>
+    <text x="{RELEASE_X + 12}" y="282" font-size="34" font-weight="700">200 ms</text>
+    <text class="serif" x="{RELEASE_X + 12}" y="346" font-size="21">Open the OpenRouter dashboard.</text>
+    <text class="muted" x="{RELEASE_X + 12}" y="368" font-size="13">appears in Spokenly</text>
+  </g>
 """
-    defs = (f'<linearGradient id="wave" gradientUnits="userSpaceOnUse" x1="70" y1="0" x2="500" y2="0">'
-            f'<stop offset="0" stop-color="{VIOLET}"/><stop offset="1" stop-color="{CYAN}"/></linearGradient>')
-    style = """
-  .bar { transform-box: fill-box; transform-origin: center; animation: talk 1.6s ease-in-out infinite; }
-  @keyframes talk { 0%, 100% { transform: scaleY(0.35); } 50% { transform: scaleY(1); } }
-  .cursor { animation: blink 1.1s steps(1) infinite; }
-  @keyframes blink { 50% { opacity: 0; } }
+    defs = (f'<clipPath id="heard"><rect class="sweep" x="{WAVE_X0 - 2}" y="200" width="{width + 6}" height="170"/></clipPath>')
+    style = f"""
+  .playhead {{ opacity: 0; animation: play {period}s linear infinite; }}
+  @keyframes play {{ 0% {{ opacity: 1; transform: translateX(0); }} {sweep:.1f}% {{ opacity: 1; transform: translateX({width}px); }}
+                     {sweep + 0.1:.1f}%, 100% {{ opacity: 0; transform: translateX({width}px); }} }}
+  .sweep {{ transform-box: view-box; transform-origin: {WAVE_X0}px 0; animation: sweep {period}s linear infinite; }}
+  @keyframes sweep {{ 0% {{ transform: scaleX(0); }} {sweep:.1f}%, 100% {{ transform: scaleX(1); }} }}
+  .result {{ animation: result {period}s linear infinite; }}
+  @keyframes result {{ 0%, {sweep:.1f}% {{ opacity: 0; }} {sweep + 1.5:.1f}%, 92% {{ opacity: 1; }} 98%, 100% {{ opacity: 0; }} }}
+  .dim {{ animation: dim {period}s ease-out infinite; }}
+  @keyframes dim {{ 0%, {sweep + 1:.1f}% {{ stroke-dashoffset: {dim_len}; }} {sweep + 9:.1f}%, 100% {{ stroke-dashoffset: 0; }} }}
+  {' '.join(styles)}
+  @media (prefers-reduced-motion: reduce) {{
+    .playhead {{ display: none; }}
+    .sweep, .result, .dim, {', '.join(f'.w{i}' for i in range(len(WORDS)))} {{ animation: none; }}
+  }}
 """
-    return frame(1280, 420, "Spokenly BYOK API Upgrade",
-                 "A local speech-to-text proxy for Spokenly. Short commands come back in about 200 ms, "
-                 "up to 3.2 times faster than before, and the proxy listens on 127.0.0.1 only.",
-                 body, defs, style)
+    return frame(1280, 440, "Spokenly BYOK API Upgrade",
+                 "A local proxy between Spokenly and the speech-to-text provider you choose. A recorded "
+                 "command, Open the OpenRouter dashboard, is aligned word by word under its waveform. "
+                 "The transcript arrives 200 ms after the key is released.", body, style, defs)
 
 
-def card(x, y, w, h, accent=None, dashed=False):
-    stroke = accent or EDGE
-    dash = ' stroke-dasharray="6 6"' if dashed else ""
-    return (f'<rect x="{x}" y="{y}" width="{w}" height="{h}" rx="16" fill="{CARD}" fill-opacity="0.92" '
-            f'stroke="{stroke}" stroke-opacity="{0.8 if accent else 1}" stroke-width="1.5"{dash}/>')
-
+# ----------------------------------------------------------------------------- pipeline
 
 def pipeline():
-    def dot(path_id, color, begin, reverse=False, dur=2.6):
-        keys = ' keyPoints="1;0" keyTimes="0;1" calcMode="linear"' if reverse else ""
-        return (f'<circle r="5.5" fill="{color}" filter="url(#soft)"><animateMotion dur="{dur}s" begin="{begin}s" '
-                f'repeatCount="indefinite"{keys}><mpath href="#{path_id}"/></animateMotion></circle>')
-
-    stages = [
-        ("1", "Route", "the model name picks", "a route in config.yaml", VIOLET),
-        ("2", "FLAC", "lossless re-encode", "45% of the size", "#818CF8"),
-        ("3", "Translate", "provider options", "and your vocabulary", CYAN),
-    ]
-    chips = []
-    for i, (num, title, l1, l2, color) in enumerate(stages):
-        x = 352 + i * 172
-        chips.append(f"""
-    {card(x, 186, 150, 132, color)}
-    <circle cx="{x + 26}" cy="214" r="13" fill="{color}" fill-opacity="0.18" stroke="{color}"/>
-    <text x="{x + 26}" y="219" text-anchor="middle" font-size="13" font-weight="700" fill="{color}">{num}</text>
-    <text x="{x + 48}" y="219" font-size="17" font-weight="700" fill="{TEXT}">{title}</text>
-    <text x="{x + 16}" y="262" font-size="13" fill="{MUTED}">{l1}</text>
-    <text x="{x + 16}" y="282" font-size="13" fill="{MUTED}">{l2}</text>""")
-        if i < 2:
-            chips.append(f'<path d="M{x + 156} 252 l10 0 m-5 -5 l5 5 l-5 5" fill="none" stroke="{FAINT}" stroke-width="2" stroke-linecap="round"/>')
-
+    y = 262
+    steps = [(430, "Pick the route", "from the model name"),
+             (600, "Re-encode to FLAC", "45% of the WAV size"),
+             (770, "Add options", "and your vocabulary")]
+    nodes = []
+    for i, (x, title, sub) in enumerate(steps, 1):
+        nodes.append(f'<circle cx="{x}" cy="{y}" r="15" fill="{PAPER}" stroke="{INK}" stroke-width="2"/>'
+                     f'<text x="{x}" y="{y + 5}" text-anchor="middle" font-size="14" font-weight="700">{i}</text>'
+                     f'<text x="{x}" y="{y + 46}" text-anchor="middle" font-size="15" font-weight="600">{title}</text>'
+                     f'<text class="muted" x="{x}" y="{y + 66}" text-anchor="middle" font-size="13">{sub}</text>')
+    arrow = lambda x, yy, d="right": (
+        f'<path d="M{x} {yy} l-9 -5 v10 z" fill="{RED}"/>' if d == "right" else
+        f'<path d="M{x} {yy} l9 -5 v10 z" fill="{SLATE}"/>' if d == "left" else
+        f'<path d="M{x} {yy} l-5 9 h10 z" fill="{SLATE}"/>')
     body = f"""
-  <ellipse cx="600" cy="280" rx="420" ry="260" fill="url(#glowV)"/>
-  <ellipse cx="1090" cy="270" rx="260" ry="240" fill="url(#glowC)"/>
-  <text x="40" y="58" font-size="22" font-weight="700" fill="{TEXT}">How a dictation travels</text>
-  <text x="40" y="84" font-size="14" fill="{MUTED}">One request, from push-to-talk to transcript. The dots show live traffic.</text>
+  {heading("How a dictation travels", "Red carries your audio. Blue carries the transcript back.")}
 
-  <path id="p-in" d="M240 252 H322" fill="none" stroke="{EDGE}" stroke-width="2" marker-end="url(#arrow)"/>
-  <path id="p-or" d="M856 230 C 895 230, 895 168, 932 168" fill="none" stroke="{EDGE}" stroke-width="2" marker-end="url(#arrow)"/>
-  <path id="p-nat" d="M856 290 C 895 290, 895 372, 932 372" fill="none" stroke="{EDGE}" stroke-width="2" marker-end="url(#arrow)"/>
-  <path id="p-log" d="M590 420 V 466" fill="none" stroke="{EDGE}" stroke-width="2" stroke-dasharray="4 5"/>
+  <g fill="none" stroke="{INK}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="128" y="214" width="32" height="54" rx="16"/>
+    <path d="M116 250 a28 28 0 0 0 56 0 M144 278 v14 M128 292 h32"/>
+  </g>
+  <text class="serif" x="144" y="326" text-anchor="middle" font-size="20" font-weight="700">Spokenly</text>
+  <text class="muted" x="144" y="346" text-anchor="middle" font-size="13">records WAV while you</text>
+  <text class="muted" x="144" y="363" text-anchor="middle" font-size="13">hold the key</text>
 
-  {card(40, 182, 200, 140)}
-  <rect x="128" y="200" width="24" height="38" rx="12" fill="none" stroke="url(#accent)" stroke-width="3"/>
-  <path d="M120 226 a20 20 0 0 0 40 0 M140 246 v10" fill="none" stroke="url(#accent)" stroke-width="3" stroke-linecap="round"/>
-  <text x="140" y="290" text-anchor="middle" font-size="18" font-weight="700" fill="{TEXT}">Spokenly</text>
-  <text x="140" y="310" text-anchor="middle" font-size="13" fill="{MUTED}">push-to-talk, sends WAV</text>
+  <rect x="330" y="150" width="540" height="248" rx="6" fill="none" stroke="{INK}" stroke-width="1.5"/>
+  <text class="serif" x="352" y="186" font-size="20" font-weight="700">Dictation proxy</text>
+  <text class="muted" x="852" y="186" text-anchor="end" font-size="13">listens on 127.0.0.1:8765</text>
+  <text class="muted" x="352" y="378" font-size="13">Logs every request to SQLite with its latency, cost and transcript.</text>
 
-  {card(322, 120, 534, 300, VIOLET, dashed=True)}
-  <text x="346" y="158" font-size="18" font-weight="700" fill="{TEXT}">Dictation proxy</text>
-  <text class="mono" x="832" y="158" text-anchor="end" font-size="13" fill="#A5B4FC">127.0.0.1:8765</text>
-  {''.join(chips)}
-  <text class="mono" x="346" y="396" font-size="12.5" fill="{MUTED}">keep-warm · hot reload · toasts · 7-day retention</text>
+  <path d="M190 {y} H415 M445 {y} H585 M615 {y} H755 M785 {y} H900 V176 H960 M900 {y} V352 H960"
+        fill="none" stroke="{RED}" stroke-width="2.5"/>
+  {arrow(330, y)}{arrow(960, 176)}{arrow(960, 352)}
+  <text x="214" y="{y - 12}" font-size="13" fill="{RED}">audio and</text>
+  <text x="214" y="{y + 22}" font-size="13" fill="{RED}">route name</text>
+  {''.join(nodes)}
 
-  {card(932, 108, 308, 120)}
-  <text x="956" y="146" font-size="18" font-weight="700" fill="{TEXT}">OpenRouter</text>
-  <text x="956" y="172" font-size="13" fill="{MUTED}">MAI-Transcribe 2, GPT Transcribe</text>
-  <rect x="956" y="186" width="152" height="24" rx="6" fill="{VIOLET}" fill-opacity="0.14"/>
-  <text class="mono" x="966" y="203" font-size="12.5" fill="#C4B5FD">backend: openrouter</text>
+  <text class="mono" x="908" y="{y - 34}" font-size="13" fill="{RED}">backend: openrouter</text>
+  <text class="mono" x="908" y="{y + 44}" font-size="13" fill="{RED}">backend: native</text>
 
-  {card(932, 312, 308, 120, GREEN)}
-  <text x="956" y="350" font-size="18" font-weight="700" fill="{TEXT}">Native API</text>
-  <text x="956" y="376" font-size="13" fill="{MUTED}">AssemblyAI Sync, EU endpoint</text>
-  <rect x="956" y="390" width="124" height="24" rx="6" fill="{GREEN}" fill-opacity="0.14"/>
-  <text class="mono" x="966" y="407" font-size="12.5" fill="#6EE7B7">backend: native</text>
+  <line x1="980" x2="980" y1="152" y2="204" stroke="{INK}" stroke-width="2"/>
+  <text class="serif" x="996" y="172" font-size="20" font-weight="700">OpenRouter</text>
+  <text class="muted" x="996" y="196" font-size="13">MAI-Transcribe 2, AssemblyAI, GPT Transcribe</text>
 
-  <ellipse cx="590" cy="476" rx="96" ry="12" fill="{CARD}" stroke="{EDGE}" stroke-width="1.5"/>
-  <path d="M494 476 V 512 a96 12 0 0 0 192 0 V 476" fill="{CARD}" stroke="{EDGE}" stroke-width="1.5"/>
-  <ellipse cx="590" cy="476" rx="96" ry="12" fill="#18213F" stroke="{EDGE}" stroke-width="1.5"/>
-  <text x="590" y="506" text-anchor="middle" font-size="14" font-weight="700" fill="{TEXT}">SQLite log</text>
-  <text x="712" y="500" font-size="13" fill="{MUTED}">latency, cost and transcript for every request</text>
+  <line x1="980" x2="980" y1="328" y2="380" stroke="{INK}" stroke-width="2"/>
+  <text class="serif" x="996" y="348" font-size="20" font-weight="700">Provider's own API</text>
+  <text class="muted" x="996" y="372" font-size="13">AssemblyAI Sync API in the EU</text>
 
-  {dot("p-in", VIOLET, 0)}
-  {dot("p-or", VIOLET, 0.9)}
-  {dot("p-nat", GREEN, 1.6)}
-  {dot("p-or", CYAN, 2.2, reverse=True)}
-  {dot("p-nat", GREEN, 0.4, reverse=True)}
-  {dot("p-in", CYAN, 1.3, reverse=True)}
-  {dot("p-log", MUTED, 0.7, dur=1.8)}
+  <path d="M1140 382 V448 H144 V378" fill="none" stroke="{SLATE}" stroke-width="2" stroke-dasharray="7 5"/>
+  {arrow(144, 372, "up")}
+  <text x="620" y="472" text-anchor="middle" font-size="13" fill="{SLATE}">transcript, returned in OpenAI's format</text>
 """
-    defs = (f'<marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">'
-            f'<path d="M0 0 L10 5 L0 10z" fill="{FAINT}"/></marker>'
-            '<filter id="soft" x="-2" y="-2" width="5" height="5"><feGaussianBlur stdDeviation="1.6" result="b"/>'
-            '<feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>')
-    return frame(1280, 548, "How the proxy works",
-                 "Spokenly sends a WAV recording to the local proxy. The proxy picks a route, re-encodes the audio "
-                 "to FLAC, adds provider options and vocabulary, and sends it to OpenRouter or a native API. "
-                 "The transcript goes back to Spokenly and every request is logged to SQLite.",
-                 body, defs)
+    return frame(1280, 500, "How a dictation travels",
+                 "Spokenly records WAV audio and sends it with a route name to the local proxy. The proxy picks "
+                 "the route, re-encodes the audio to FLAC, adds provider options and vocabulary, and sends it to "
+                 "OpenRouter or the provider's own API. The transcript returns to Spokenly in OpenAI's format.",
+                 body)
 
+
+# ----------------------------------------------------------------------------- speed
 
 def speed():
-    x0, maxw, scale_max = 280, 720, 3300
-    colors = [(AMBER, "Before"), (VIOLET, "FLAC upload"), (GREEN, "Native and FLAC")]
-    rows = []
-    legend_x = 760
-    for i, (c, label) in enumerate(colors):
-        rows.append(f'<rect x="{legend_x}" y="52" width="14" height="14" rx="4" fill="{c}"/>'
-                    f'<text x="{legend_x + 22}" y="64" font-size="14" fill="{MUTED}">{label}</text>')
-        legend_x += 22 + len(label) * 7.6 + 26
-    delay = 0.0
-    for g, (name, sub, *vals) in enumerate(SPEED):
-        y = 124 + g * 116
-        rows.append(f'<text x="40" y="{y + 26}" font-size="17" font-weight="700" fill="{TEXT}">{name}</text>'
-                    f'<text x="40" y="{y + 48}" font-size="13" fill="{MUTED}">{sub}</text>')
-        for b, (v, (c, _)) in enumerate(zip(vals, colors)):
-            w = maxw * v / scale_max
-            by = y + b * 29
-            rows.append(f'<rect class="grow" x="{x0}" y="{by}" width="{w:.1f}" height="21" rx="5" fill="{c}" '
-                        f'fill-opacity="{1 if b == 2 else 0.78}" style="animation-delay:{delay:.2f}s"/>'
-                        f'<text class="mono fade" x="{x0 + w + 10:.1f}" y="{by + 16}" font-size="13.5" fill="{TEXT}" '
-                        f'style="animation-delay:{delay + 0.6:.2f}s">{v:,} ms</text>')
-            delay += 0.12
-        factor = vals[0] / vals[2]
-        rows.append(f'<text x="1236" y="{y + 44}" text-anchor="end" font-size="40" font-weight="800" fill="url(#accent)">{factor:.1f}x</text>'
-                    f'<text x="1236" y="{y + 66}" text-anchor="end" font-size="13" fill="{MUTED}">faster</text>')
-        if g < len(SPEED) - 1:
-            rows.append(f'<line x1="40" x2="1240" y1="{y + 102}" y2="{y + 102}" stroke="{EDGE}" stroke-opacity="0.6"/>')
+    x0, x1, vmax = 470, 1210, 3400
+    px = lambda ms: x0 + ms / vmax * (x1 - x0)
+    top, gap = 168, 82
+    bottom = top + gap * (len(SPEED) - 1) + 44
+    parts = []
+    for ms in range(0, 3001, 500):
+        label = f"{ms:,}" + (" ms" if ms == 3000 else "")
+        parts.append(f'<line x1="{px(ms):.1f}" x2="{px(ms):.1f}" y1="{top - 30}" y2="{bottom - 18}" stroke="{RULE}"/>'
+                     f'<text class="muted" x="{px(ms):.1f}" y="{bottom + 4}" text-anchor="middle" font-size="13">{label}</text>')
+    for i, (name, sub, before, flac, native) in enumerate(SPEED):
+        y = top + i * gap
+        xb, xf, xn = px(before), px(flac), px(native)
+        parts.append(f"""
+  <text class="serif" x="64" y="{y - 2}" font-size="20" font-weight="700">{name}</text>
+  <text class="muted" x="64" y="{y + 18}" font-size="13">{sub}</text>
+  <text class="serif" x="420" y="{y + 9}" text-anchor="end" font-size="28" font-weight="700">{before / native:.1f}x</text>
+  <line x1="{xn:.1f}" x2="{xb:.1f}" y1="{y}" y2="{y}" stroke="{INK}" stroke-width="2"/>
+  <circle cx="{xb:.1f}" cy="{y}" r="7" fill="{PAPER}" stroke="{MUTED}" stroke-width="2"/>
+  <circle cx="{xf:.1f}" cy="{y}" r="5" fill="{SLATE}"/>
+  <circle cx="{xn:.1f}" cy="{y}" r="8" fill="{RED}"/>
+  <text class="muted" x="{xb:.1f}" y="{y - 16}" text-anchor="middle" font-size="13">{before:,}</text>
+  <text x="{xn:.1f}" y="{y - 16}" text-anchor="middle" font-size="14" font-weight="700" fill="{RED}">{native:,}</text>""")
+    legend = (f'<circle cx="{x0 + 6}" cy="128" r="6" fill="{PAPER}" stroke="{MUTED}" stroke-width="2"/>'
+              f'<text class="muted" x="{x0 + 20}" y="133" font-size="13">before</text>'
+              f'<circle cx="{x0 + 96}" cy="128" r="5" fill="{SLATE}"/>'
+              f'<text class="muted" x="{x0 + 108}" y="133" font-size="13">FLAC upload through OpenRouter</text>'
+              f'<circle cx="{x0 + 330}" cy="128" r="7" fill="{RED}"/>'
+              f'<text class="muted" x="{x0 + 344}" y="133" font-size="13">AssemblyAI\'s own API with FLAC</text>'
+              f'<text class="muted" x="420" y="133" text-anchor="end" font-size="13">faster</text>')
     body = f"""
-  <ellipse cx="1050" cy="120" rx="360" ry="200" fill="url(#glowC)"/>
-  <text x="40" y="58" font-size="22" font-weight="700" fill="{TEXT}">AssemblyAI latency per dictation</text>
-  <text x="40" y="84" font-size="14" fill="{MUTED}">Median of 3 runs on real recordings, October 2026. Lower is better.</text>
-  {''.join(rows)}
-"""
-    style = """
-  .grow { transform-box: fill-box; transform-origin: left center; animation: grow 1.1s cubic-bezier(.2,.8,.2,1) both; }
-  @keyframes grow { from { transform: scaleX(0); } to { transform: scaleX(1); } }
-  .fade { animation: fade 0.6s ease-out both; }
-  @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
-"""
-    return frame(1280, 470, "AssemblyAI latency before and after optimizing",
-                 "Short commands went from 640 to 200 ms, a 12 second dictation from 969 to 551 ms, "
-                 "and a 55 second paragraph from 3254 to 1371 ms.", body, style=style)
-
-
-def shootout():
-    L, R, T, B = 120, 1190, 116, 470
-    xmax, ymax = 3000, 13
-    px = lambda ms: L + ms / xmax * (R - L)
-    py = lambda wer: B - wer / ymax * (B - T)
-    parts = [f'<rect x="{L}" y="{py(4):.0f}" width="{px(1150) - L:.0f}" height="{B - py(4):.0f}" rx="12" '
-             f'fill="{GREEN}" fill-opacity="0.07" stroke="{GREEN}" stroke-opacity="0.35" stroke-dasharray="5 6"/>',
-             f'<text x="{L + 14}" y="{py(4) + 22:.0f}" font-size="13" font-weight="600" fill="#6EE7B7">fast and accurate</text>']
-    for ms in range(0, xmax + 1, 500):
-        parts.append(f'<line x1="{px(ms):.1f}" x2="{px(ms):.1f}" y1="{T}" y2="{B}" stroke="{EDGE}" stroke-opacity="0.55"/>'
-                     f'<text class="mono" x="{px(ms):.1f}" y="{B + 22}" text-anchor="middle" font-size="12.5" fill="{MUTED}">{ms}</text>')
-    for wer in range(0, ymax + 1, 2):
-        parts.append(f'<line x1="{L}" x2="{R}" y1="{py(wer):.1f}" y2="{py(wer):.1f}" stroke="{EDGE}" stroke-opacity="0.55"/>'
-                     f'<text class="mono" x="{L - 12}" y="{py(wer) + 4:.1f}" text-anchor="end" font-size="12.5" fill="{MUTED}">{wer}%</text>')
-    parts.append(f'<text x="{(L + R) / 2:.0f}" y="{B + 48}" text-anchor="middle" font-size="14" fill="{MUTED}">median latency (ms)</text>'
-                 f'<text transform="translate(52 {(T + B) / 2:.0f}) rotate(-90)" text-anchor="middle" font-size="14" fill="{MUTED}">word error rate</text>')
-    for i, (name, ms, wer, fill, kept, place) in enumerate(SHOOTOUT):
-        x, y, r = px(ms), py(wer), 9 + fill * 3
-        color = "url(#bubble)" if kept else "#64748B"
-        stroke = CYAN if kept else "#94A3B8"
-        parts.append(f'<circle class="pop" cx="{x:.1f}" cy="{y:.1f}" r="{r}" fill="{color}" fill-opacity="{0.9 if kept else 0.45}" '
-                     f'stroke="{stroke}" stroke-opacity="0.8" style="animation-delay:{0.15 * i:.2f}s"/>')
-        if kept:
-            parts.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{r}" fill="none" stroke="{CYAN}" stroke-width="2">'
-                         f'<animate attributeName="r" values="{r};{r + 14}" dur="2.4s" begin="{0.4 * i}s" repeatCount="indefinite"/>'
-                         f'<animate attributeName="opacity" values="0.7;0" dur="2.4s" begin="{0.4 * i}s" repeatCount="indefinite"/></circle>')
-        dx, dy, anchor = {"right": (r + 10, 5, "start"), "left": (-r - 10, 5, "end"),
-                          "right-low": (r + 10, 18, "start"), "left-high": (-r - 6, -14, "end")}[place]
-        parts.append(f'<text x="{x + dx:.1f}" y="{y + dy:.1f}" text-anchor="{anchor}" font-size="14" '
-                     f'font-weight="{700 if kept else 500}" fill="{TEXT if kept else MUTED}">{name}'
-                     f'<tspan class="mono" font-size="12" fill="{MUTED}" font-weight="400"> {wer}%</tspan></text>')
-    legend = (f'<circle cx="790" cy="62" r="8" fill="url(#bubble)" stroke="{CYAN}"/>'
-              f'<text x="806" y="67" font-size="14" fill="{MUTED}">in the default config</text>'
-              f'<circle cx="980" cy="62" r="8" fill="#64748B" fill-opacity="0.45" stroke="#94A3B8"/>'
-              f'<text x="996" y="67" font-size="14" fill="{MUTED}">dropped after testing</text>')
-    body = f"""
-  <ellipse cx="300" cy="420" rx="380" ry="220" fill="url(#glowV)"/>
-  <text x="40" y="58" font-size="22" font-weight="700" fill="{TEXT}">Model shootout on real dictation</text>
-  <text x="40" y="84" font-size="14" fill="{MUTED}">7 recorded clips through OpenRouter. Bigger bubbles kept more filler words.</text>
+  {heading("AssemblyAI latency per dictation", "Median of 3 runs on real recordings, October 2026. Milliseconds from upload to transcript.")}
   {legend}
   {''.join(parts)}
 """
-    defs = (f'<radialGradient id="bubble" cx="0.35" cy="0.35" r="0.75"><stop offset="0" stop-color="{CYAN}"/>'
-            f'<stop offset="1" stop-color="{VIOLET}"/></radialGradient>')
-    style = """
-  .pop { transform-box: fill-box; transform-origin: center; animation: pop 0.7s cubic-bezier(.3,1.6,.5,1) both; }
-  @keyframes pop { from { transform: scale(0); } to { transform: scale(1); } }
+    return frame(1280, bottom + 36, "AssemblyAI latency before and after optimizing",
+                 "Short commands went from 640 to 200 ms, 3.2 times faster. A 12 second dictation went from "
+                 "969 to 551 ms, and a 55 second paragraph from 3254 to 1371 ms.", body)
+
+
+# ----------------------------------------------------------------------------- shootout
+
+def shootout():
+    L, R, T, B = 150, 1210, 142, 448
+    xmax, ymax = 3000, 13
+    px = lambda ms: L + ms / xmax * (R - L)
+    py = lambda wer: B - wer / ymax * (B - T)
+    parts = [f'<rect x="{L}" y="{py(4):.0f}" width="{px(1200) - L:.0f}" height="{B - py(4):.0f}" fill="{RULE}" fill-opacity="0.35"/>',
+             f'<text class="muted" x="{L + 12}" y="{B - 12}" font-size="13">faster and more accurate</text>']
+    for ms in range(0, xmax + 1, 500):
+        label = f"{ms:,}" + (" ms" if ms == xmax else "")
+        parts.append(f'<line x1="{px(ms):.1f}" x2="{px(ms):.1f}" y1="{T}" y2="{B}" stroke="{RULE}"/>'
+                     f'<text class="muted" x="{px(ms):.1f}" y="{B + 24}" text-anchor="middle" font-size="13">{label}</text>')
+    for wer in range(0, ymax + 1, 2):
+        parts.append(f'<line x1="{L}" x2="{R}" y1="{py(wer):.1f}" y2="{py(wer):.1f}" stroke="{RULE}"/>'
+                     f'<text class="muted" x="{L - 12}" y="{py(wer) + 4:.1f}" text-anchor="end" font-size="13">{wer}%</text>')
+    parts.append(f'<text class="muted" x="{L - 12}" y="{T - 16}" text-anchor="end" font-size="13">word errors</text>')
+    for name, ms, wer, fill, kept, side in SHOOTOUT:
+        x, y, r = px(ms), py(wer), 7 + fill * 2.6
+        if kept:
+            parts.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{r}" fill="{INK}"/>')
+        else:
+            parts.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{r}" fill="{PAPER}" fill-opacity="0.7" stroke="{MUTED}" stroke-width="1.5"/>')
+        dx, dy, anchor = {"right": (r + 10, 5, "start"), "left": (-r - 10, 5, "end"),
+                          "right-low": (r + 10, 20, "start"), "left-high": (-r - 6, -12, "end")}[side]
+        cls = 'class="serif" font-size="17" font-weight="700"' if kept else 'class="muted" font-size="14"'
+        parts.append(f'<text {cls} x="{x + dx:.1f}" y="{y + dy:.1f}" text-anchor="{anchor}">{name}'
+                     f'<tspan class="muted" font-family="{SANS}" font-size="13" font-weight="400"> {wer}%</tspan></text>')
+    legend = (f'<circle cx="760" cy="96" r="7" fill="{INK}"/><text class="muted" x="774" y="101" font-size="13">kept in the default config</text>'
+              f'<circle cx="958" cy="96" r="7" fill="{PAPER}" stroke="{MUTED}" stroke-width="1.5"/><text class="muted" x="972" y="101" font-size="13">dropped after testing</text>'
+              f'<circle cx="1128" cy="96" r="12" fill="none" stroke="{MUTED}" stroke-width="1.5"/><text class="muted" x="1146" y="101" font-size="13">more fillers</text>')
+    body = f"""
+  {heading("Seven models on the same recordings", "Word error rate against median latency, all through OpenRouter.")}
+  {legend}
+  {''.join(parts)}
 """
-    return frame(1280, 548, "Model shootout results",
-                 "Word error rate against median latency for seven speech-to-text models. AssemblyAI had the "
-                 "lowest error rate at 1.9 percent with 638 ms, MAI-Transcribe 2 had 2.5 percent and removed all "
-                 "fillers, and Gemini 3.5 was slowest and least accurate.", body, defs, style)
+    return frame(1280, 510, "Model shootout results",
+                 "Word error rate against median latency for seven speech-to-text models on the same seven recordings. "
+                 "AssemblyAI had 1.9 percent at 638 ms, MAI-Transcribe 2 had 2.5 percent and kept no filler words, "
+                 "GPT Transcribe had 3.2 percent, and Gemini 3.5 was slowest at 12.1 percent.", body)
 
 
 if __name__ == "__main__":
