@@ -229,8 +229,8 @@ Run each one with `.\.venv\Scripts\python.exe scripts\<name>.py`.
 |---|---|
 | `stats.py` | latency, errors, cost, and new TCP connection flags beside gaps since the previous request start per backend/provider |
 | `retry.py [clip]` | resend the newest failed clip, or a given clip, on its saved route |
-| `vocab.py usage` | how often you say each vocabulary term |
-| `vocab.py suggest` | likely names and inconsistent spellings found in your transcripts |
+| `vocab.py usage` | how often you say each term, with terms beyond each active route vocabulary limit flagged |
+| `vocab.py suggest --min 2` | names, spelling variants and fuzzy matches of 1 to 3 words against your vocabulary at similarity 0.8 or above, ranked by distinct dictations |
 | `vocab.py add "Term"` | adds a term to `vocabulary.txt` |
 | `shootout.py sheet` | prints the scripts to read aloud |
 | `shootout.py import` | labels your latest recordings as shootout clips |
