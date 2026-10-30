@@ -14,9 +14,11 @@ function Show-Status {
     $state = (Get-ScheduledTask -TaskName $TaskName).State
     try {
         $h = Invoke-RestMethod "http://127.0.0.1:$Port/health" -TimeoutSec 2
+        if ($h.status -ne "ok") { throw "Proxy health is $($h.status)" }
         Write-Host "task: $state | proxy: up on port $Port, routes: $($h.routes -join ', ')"
     } catch {
         Write-Host "task: $state | proxy: not responding on port $Port (see data\proxy.log)"
+        exit 1
     }
 }
 

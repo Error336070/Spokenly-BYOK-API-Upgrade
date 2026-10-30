@@ -257,6 +257,8 @@ powershell -ExecutionPolicy Bypass -File scripts\uninstall-autostart.ps1   # rem
 
 Restart the proxy after you change `.env` or the code. The proxy writes its log to `data\proxy.log`, one file per day.
 
+Startup exceptions, including invalid config, go to `data/proxy.log`. `proxyctl.ps1` exits with code 1 if readiness fails. To enable a second task that checks health every 5 minutes, run `install-autostart.ps1 -Watchdog`. The watchdog shows a toast and starts the proxy task after a failed check. It logs to `data/watchdog.log`. Uninstall removes both tasks. Registration and recovery need a logged-in Windows session. Review and run these scripts from the main checkout after merging the changes.
+
 The proxy shows a Windows notification in these cases:
 
 - A provider rejects your key, runs out of credits or rate-limits you.

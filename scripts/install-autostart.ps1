@@ -3,7 +3,8 @@
 param(
     [string]$TaskName = "DictationProxy",
     [string]$Config = "",
-    [switch]$NoStart
+    [switch]$NoStart,
+    [switch]$Watchdog
 )
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
@@ -24,6 +25,17 @@ $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -Ru
 Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Settings $settings `
     -Principal $principal -Description "Dictation Proxy (local STT proxy for Spokenly) at $root" -Force | Out-Null
 Write-Host "Registered task '$TaskName' (runs at logon: $pythonw $arguments)"
+
+if ($Watchdog) {
+    $watchArguments = "`"$(Join-Path $root 'scripts\watchdog.py')`" --task `"$TaskName`""
+    if ($Config) { $watchArguments += " --config `"$((Resolve-Path $Config).Path)`"" }
+    $watchAction = New-ScheduledTaskAction -Execute $pythonw -Argument $watchArguments -WorkingDirectory $root
+    $watchTrigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(5) `
+        -RepetitionInterval (New-TimeSpan -Minutes 5)
+    Register-ScheduledTask -TaskName "$TaskName-Watchdog" -Action $watchAction -Trigger $watchTrigger `
+        -Settings $settings -Principal $principal -Description "Check Dictation Proxy every 5 minutes" -Force | Out-Null
+    Write-Host "Registered task '$TaskName-Watchdog'."
+}
 
 if (-not $NoStart) {
     Start-ScheduledTask -TaskName $TaskName
