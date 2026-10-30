@@ -9,6 +9,9 @@ data/
 shootout/clips/
 shootout/results/
 
+# local tooling
+.claude/
+
 # Python
 .venv/
 __pycache__/
