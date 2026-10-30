@@ -1,235 +1,343 @@
-# Dictation Proxy
+<div align="center">
 
-A local OpenAI-compatible speech-to-text proxy that sits between Spokenly and STT providers (OpenRouter now, native APIs later). It listens on 127.0.0.1 only.
+# 🎙️ Spokenly BYOK API Upgrade
 
-## Status
+**A tiny local proxy that gives [Spokenly](https://spokenly.app) dictation faster, cleaner speech-to-text, using your own API keys and settings Spokenly doesn't expose.**
 
-| Stage | What | State |
-|---|---|---|
-| 1 | Server skeleton, request logging, `mai-clean` and `voxtral` routes on OpenRouter | done |
-| 2 | Remaining OpenRouter routes, plus empirical checks of which provider options take effect | done |
-| 3 | Latency logging and error handling (no fallback between routes) | done |
-| 4 | Replay/shootout CLI | done |
-| 5 | Windows auto-start | done |
-| 6 | Native backends: AssemblyAI and Azure MAI-Transcribe built (mocked tests); ElevenLabs/Mistral deferred | built, awaiting keys |
+[![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-local%20proxy-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![Windows](https://img.shields.io/badge/Windows-11-0078D4?logo=windows11&logoColor=white)](#-run-it-in-the-background)
+[![OpenAI compatible](https://img.shields.io/badge/API-OpenAI%20compatible-412991?logo=openai&logoColor=white)](#-connect-spokenly)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-## Native backends
+[Quick start](#-quick-start) · [How it works](#-how-it-works) · [Benchmarks](#-benchmarks) · [Configuration](#%EF%B8%8F-configuration) · [Tools](#-tools) · [FAQ](#-faq)
 
-`mai-clean` and `assembly` each have a `native:` block. Switching one is a single line in `config.yaml` (applies without a restart), and nothing changes in Spokenly:
+</div>
 
-```yaml
-  assembly:
-    backend: native      # was: openrouter
-```
+---
 
-| Route | Native API | Settings sent |
-|---|---|---|
-| `mai-clean` | Azure Speech fast transcription, `{region}.api.cognitive.microsoft.com/speechtotext/transcriptions:transcribe?api-version=2025-10-15` | `enhancedMode` with `MAI-Transcribe-2`, `transcribeStyle: clean`, `phraseList.phrases`, `locales: [en]` |
-| `assembly` | AssemblyAI Sync API (EU zone), `sync.eu.assemblyai.com/v1/transcribe` | header `X-AAI-Model: universal-3-5-pro`, config `keyterms_prompt`, `language_codes: en` |
+## ✨ Why
 
-Setup:
-1. Add `ASSEMBLYAI_API_KEY`, and/or `AZURE_SPEECH_KEY` with `AZURE_SPEECH_REGION=northeurope`, to `.env` (see `.env.example`).
-2. Restart the proxy, since `.env` is only read at startup.
-3. Compare against OpenRouter on your own clips:
+Spokenly lets you plug in any **OpenAI-compatible** transcription endpoint, but it only sends a model name, a key and a language. That leaves no control over provider options like *clean* (filler-free) transcription, custom vocabulary, regional endpoints or upload format.
 
-```powershell
-.\.venv\Scripts\python.exe scripts\shootout.py run --routes mai-clean assembly                    # OpenRouter
-.\.venv\Scripts\python.exe scripts\shootout.py run --routes mai-clean assembly --backend native   # native
-```
+This proxy sits on `127.0.0.1` between Spokenly and the providers. It speaks OpenAI's `/v1/audio/transcriptions` to Spokenly and translates each request into exactly what the provider needs:
 
-Notes from the docs (2026-10-30):
-- AssemblyAI's Sync API documents Universal-3.5 Pro only, while OpenRouter serves 3.6 Pro, so native `assembly` may be a slightly older model. `model:` in the native block changes it.
-- AssemblyAI gives new accounts $50 in free credits, but its billing page doesn't list the Sync API among the covered products. Check before relying on it.
-- Microsoft's docs disagree on whether MAI's default style is clean or verbatim, so `clean` is always sent. MAI-Transcribe 2 is in preview, and North Europe is a supported region.
-- Native requests return no cost, so the `cost` column stays empty for them.
+| | |
+|---|---|
+| 🧹 **Clean output** | Sends provider-specific options, e.g. MAI-Transcribe 2's `transcribeStyle: clean`, which removes *um*, *uh* and repeated words |
+| 📚 **Your vocabulary everywhere** | One word list, translated per provider (phrase lists, key terms, prompts) and trimmed to each provider's limits |
+| ⚡ **Faster uploads** | Lossless FLAC and raw multipart uploads instead of base64 WAV: up to **~2.4× faster** on long dictation |
+| 🔀 **One-line backend switch** | Each route runs on **OpenRouter** or the provider's **native API**; change one line, Spokenly never notices |
+| 📊 **Measured, not guessed** | Every request logs latency, the provider's own timing and cost to SQLite, and a shootout tool scores models on *your* voice |
+| 🪟 **Set and forget** | Silent auto-start at login, config hot reload, keep-warm connections, Windows toasts when something breaks |
 
-## Project layout
+---
 
-```
-config.yaml         routes, backend per route, vocabulary, timeouts, logging
-.env                API keys (copy from .env.example; never committed or logged)
-proxy/app.py        FastAPI endpoints
-proxy/backends.py   provider clients (one pooled keep-alive connection each)
-proxy/translate.py  pure OpenAI <-> provider request/response translation
-proxy/audio.py      audio format sniffing, WAV metadata
-proxy/storage.py    SQLite request log (data/requests.sqlite)
-tests/              translation-layer and end-to-end tests with a mocked provider
-data/               logs, SQLite DB, saved clips (created at runtime)
-```
+## 🚀 Quick start
 
-## Setup
+> **Requirements:** Windows 10/11, Python 3.10+, Spokenly, and an [OpenRouter](https://openrouter.ai) and/or [AssemblyAI](https://www.assemblyai.com) API key.
 
 ```powershell
+git clone https://github.com/Error336070/Spokenly-BYOK-API-Upgrade.git
+cd Spokenly-BYOK-API-Upgrade
+
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
-copy .env.example .env      # then set OPENROUTER_API_KEY in .env
-.\.venv\Scripts\python.exe -m proxy
+
+copy .env.example .env                       # add your API key(s)
+copy vocabulary.example.txt vocabulary.txt   # add your own tricky words
+
+.\.venv\Scripts\python.exe -m proxy          # runs on http://127.0.0.1:8765
 ```
 
-Tests: `.\.venv\Scripts\python.exe -m pytest -q tests`
+Check that it's up: open <http://127.0.0.1:8765/health>.
 
-## Spokenly settings (custom OpenAI-compatible provider)
+### 🔌 Connect Spokenly
+
+In Spokenly, add a **custom OpenAI-compatible** transcription provider:
 
 | Field | Value |
 |---|---|
-| Base URL | `http://127.0.0.1:8765/v1` (if Spokenly appends `/v1` itself and requests fail, use `http://127.0.0.1:8765`) |
-| API key | anything, e.g. `local`. If `PROXY_API_KEY` is set in `.env`, use that value. |
-| Model | a route name: `voxtral` or `mai-clean` |
-| Language | `en` (optional; the proxy defaults to `en`) |
+| **Base URL** | `http://127.0.0.1:8765/v1` |
+| **API key** | anything, e.g. `local` (or your `PROXY_API_KEY` if you set one) |
+| **Model** | a route name: `mai-clean`, `assembly` or `gpt` |
+| **Language** | `en` |
 
-Switching a route between OpenRouter and a native API is a one-line `backend:` change in `config.yaml`, with nothing to change in Spokenly. Restart the proxy after editing the config.
+Add one provider per route you want to switch between. Unknown model names fall back to `default_route`.
 
-## Routes
+---
 
-The route is picked by the `model` field. Unknown names (e.g. `whisper-1`) use `default_route`.
+## 🧭 How it works
 
-Active routes: `mai-clean` (default), `assembly`, `gpt`. After the 2026-10-29 shootout, `voxtral`, `voxtral-mini`, `scribe-clean` and `gemini` were removed from `config.yaml`; their working settings are below for re-adding later (e.g. on native backends in stage 6).
+```mermaid
+flowchart LR
+    S["🎙️ Spokenly<br/>push-to-talk"] -- "WAV · model=assembly" --> P
+    subgraph P ["Dictation proxy · 127.0.0.1:8765"]
+        direction TB
+        R["Route lookup<br/>config.yaml"] --> E["WAV → FLAC<br/>~45% size, ~10 ms"]
+        E --> T["Translate request<br/>options + vocabulary"]
+    end
+    T -- "backend: openrouter" --> O["OpenRouter<br/>MAI · AssemblyAI · GPT"]
+    T -- "backend: native" --> N["AssemblyAI Sync API (EU)<br/>Azure Speech (MAI)"]
+    O --> P
+    N --> P
+    P -- "transcript (OpenAI JSON)" --> S
+    P -. "every request" .-> L[("SQLite log<br/>latency · cost · transcript")]
+```
 
-| Route | OpenRouter model | Options sent | Verified effect (2026-10-29) |
+1. Spokenly uploads the recording with a `model` name. The proxy uses it as a **route** name.
+2. The route says which **backend** to use (OpenRouter or native) and which provider options to send.
+3. WAV audio is re-encoded to lossless **FLAC** and sent as a raw file upload.
+4. The transcript comes back in OpenAI's format (`json`, `text`, `verbose_json`, `srt` and `vtt` are all supported).
+5. Timing, cost and the transcript are logged. OpenRouter's own latency figure is fetched in the background, so you can tell provider time from network time.
+
+---
+
+## 🏁 Benchmarks
+
+Measured on real push-to-talk dictation against EU endpoints (October 2026). Your numbers will vary with location and network.
+
+### Model shootout: 7 scripted clips, my own voice
+
+| Route | Word error rate | Fillers kept | Vocabulary missed | Median latency | Cost / clip |
+|---|---:|---:|---:|---:|---:|
+| `assembly` (AssemblyAI Universal-3.6 Pro) | **1.9%** | 1 | 0 | **638 ms** | $0.00100 |
+| `mai-clean` (Microsoft MAI-Transcribe 2, clean) | 2.5% | **0** | 1 | 1042 ms | **$0.00035** |
+| `gpt` (OpenAI GPT Transcribe) | 3.2% | **0** | 0 | 964 ms | $0.00093 |
+| Voxtral Mini Transcribe 3 | 5.1% | 5 | 0 | 630 ms | $0.00067 |
+| Voxtral Small Transcribe 3 | 5.7% | 3 | 0 | 1095 ms | $0.00076 |
+| ElevenLabs Scribe v2 | 5.7% | 0 | 5 | 1017 ms | $0.00073 |
+| Gemini 3.5 Transcribe | 12.1% | 4 | 5 | 2897 ms | $0.00104 |
+
+<sub>All via OpenRouter, before the upload optimizations below. The bottom four routes were dropped from the default config.</sub>
+
+### Speed: before vs after optimizing (AssemblyAI)
+
+| Clip | Before<br/><sub>OpenRouter, base64 WAV</sub> | FLAC upload<br/><sub>OpenRouter</sub> | **Native + FLAC**<br/><sub>AssemblyAI Sync API</sub> | Speed-up |
+|---|---:|---:|---:|---:|
+| Short command (2–4 s) | ~640 ms | ~340 ms | **~200 ms** | **~3.2×** |
+| 12 s dictation | 969 ms | 636 ms | **551 ms** | **~1.8×** |
+| 55 s paragraph | 3254 ms | 1631 ms | **1371 ms** | **~2.4×** |
+
+Transcripts were identical across upload formats and between native and OpenRouter.
+
+---
+
+## 🛣️ Routes
+
+| Route | OpenRouter model | Native API | What it sends |
 |---|---|---|---|
-| `mai-clean` | `microsoft/mai-transcribe-2` | `azure.enhancedMode.modelOptions.transcribeStyle=clean`, `azure.phraseList.phrases` | clean removes um/uh and repeated words; phrase list works |
-| `voxtral` | `mistralai/voxtral-small-transcribe-3-0` | `mistral.context_bias` (comma-joined string, max 100 terms), `provider.order=[mistral/eu]` | bias works only as a string (a list is ignored); keeps fillers |
-| `voxtral-mini` | `mistralai/voxtral-mini-transcribe-3-0` | same as `voxtral` | same |
-| `scribe-clean` | `elevenlabs/scribe-v2` | `elevenlabs.no_verbatim`, `tag_audio_events=false`, `keyterms` | no_verbatim drops repeats but kept um/uh; keyterms ignored via OpenRouter |
-| `assembly` | `assemblyai/universal-3-6-pro` | `assemblyai.keyterms_prompt` | keyterms work; keeps fillers |
-| `gemini` | `google/gemini-3.5-transcribe` | none | a `prompt` option is rejected with HTTP 400 |
-| `gpt` | `openai/gpt-transcribe` | `openai.prompt="Vocabulary: ..."` | vocabulary works; a "no fillers" instruction had no effect |
+| `mai-clean` | `microsoft/mai-transcribe-2` | Azure Speech fast transcription | `transcribeStyle: clean` + phrase list |
+| `assembly` | `assemblyai/universal-3-6-pro` | AssemblyAI Sync API (EU), Universal-3.5 Pro | `keyterms_prompt` |
+| `gpt` | `openai/gpt-transcribe` | — | vocabulary as a prompt |
 
-These findings come from [scripts/probe_options.py](scripts/probe_options.py), which sends Windows text-to-speech clips (`data/testclips`) with and without each option. Caveats:
-- Unknown option keys are silently ignored, so an option with no visible effect may simply have been dropped.
-- The test clips use TTS speech, where "um" and "uh" are pronounced as clear words. Real human hesitations may be handled differently, so retest fillers with real dictation in the shootout (stage 4).
-- The top-level `keyterms` field returned HTTP 400 ("does not support keyterms") on every model tested.
+Switching a route to its native API is one line in `config.yaml`, and it applies instantly:
 
-## Upload speed
+```yaml
+  assembly:
+    backend: native     # or: openrouter
+```
 
-Before sending, the proxy re-encodes Spokenly's WAV to lossless FLAC (`upload.flac`), about 45% of the size in 4–16 ms. It sends the result to OpenRouter as a raw file upload instead of base64 JSON (`openrouter.multipart`). Native backends get the FLAC too.
+<details>
+<summary><b>🔬 Which provider options actually work through OpenRouter</b> (tested empirically)</summary>
 
-Measured 2026-10-30 against WAV in base64 JSON, with identical transcripts:
+<br/>
 
-| Clip | WAV + JSON | FLAC + file upload |
+OpenRouter silently ignores unknown option keys, so each option was checked with and without it on synthetic clips. [`scripts/probe_options.py`](scripts/probe_options.py) re-runs the checks.
+
+| Model | Option | Result |
 |---|---|---|
-| 55 s paragraph | 2.8–3.3 s | 1.3–1.6 s |
-| 12 s clip | 0.9–1.0 s | 0.6–0.65 s |
+| MAI-Transcribe 2 | `azure.enhancedMode.modelOptions.transcribeStyle: clean` | ✅ removes fillers and repeats |
+| MAI-Transcribe 2 | `azure.phraseList.phrases` | ✅ fixes rare words |
+| AssemblyAI | `assemblyai.keyterms_prompt` | ✅ works |
+| AssemblyAI | `disfluencies: false`, "no fillers" prompt | ❌ no effect |
+| GPT Transcribe | `openai.prompt` with vocabulary | ✅ works |
+| Voxtral | `mistral.context_bias` as a **comma-separated string** | ✅ works (a JSON list is silently ignored) |
+| ElevenLabs Scribe v2 | `no_verbatim` | ⚠️ drops repeats, keeps um/uh |
+| ElevenLabs Scribe v2 | `keyterms` (list, string, `keyterms_prompt`) | ❌ ignored |
+| Gemini 3.5 Transcribe | `prompt` | ❌ HTTP 400 |
+| All models | top-level `keyterms` | ❌ HTTP 400 |
 
-Either switch can be turned off in `config.yaml`, and the change applies immediately. Saved clips stay as the original WAV. The `sent_format`, `sent_bytes` and `encode_ms` columns record what was actually sent.
+</details>
 
-MAI's rare 10–14 s spikes happen inside the provider (OpenRouter's own latency figure covers them), so they can't be fixed locally.
+---
 
-## Config hot reload
+## ⚙️ Configuration
 
-Edits to `config.yaml` apply within about a second, with no restart: routes, vocabulary, timeouts, `save_audio`, notifications, retention. An invalid edit is ignored, the previous config stays active, and you get a toast with the error.
+Everything lives in two files. Edits to either apply **within a second, without a restart**: an invalid edit is ignored, the previous config stays active, and a toast tells you what's wrong.
 
-`server` host/port changes and `.env` changes still need a restart.
+| File | Tracked by git | Holds |
+|---|:---:|---|
+| `config.yaml` | ✅ | routes, backends, timeouts, upload, logging, notifications |
+| `vocabulary.txt` | ❌ | your personal terms, one per line |
+| `.env` | ❌ | API keys (read at startup only) |
 
-## Vocabulary
+<details>
+<summary><b>📄 config.yaml reference</b></summary>
 
-Your personal terms go in `vocabulary.txt`, one per line. It isn't tracked by git, so names, medications and the like stay off GitHub. Copy `vocabulary.example.txt` to start. The terms are added to `vocabulary:` in `config.yaml` (shared, committed terms), sent to every route, and edits to either file apply instantly. Manage them from your real dictation log:
+<br/>
 
-```powershell
-.\.venv\Scripts\python.exe scripts\vocab.py usage                 # how often you say each term
-.\.venv\Scripts\python.exe scripts\vocab.py suggest               # likely names/brands and inconsistent spellings
-.\.venv\Scripts\python.exe scripts\vocab.py add "Term" "Other"    # applies instantly
-.\.venv\Scripts\python.exe scripts\vocab.py remove "Term"
-```
+| Key | Default | What it does |
+|---|---|---|
+| `default_route` | `mai-clean` | route used for unknown model names |
+| `language` | `en` | used when Spokenly sends none |
+| `timeouts.request_s` | `15` | give up on a provider after this long |
+| `upload.flac` | `true` | re-encode WAV to lossless FLAC before sending |
+| `openrouter.multipart` | `true` | raw file upload instead of base64 JSON |
+| `keep_warm.enabled` | `true` | ping providers every `interval_s` (120), only within `active_window_min` (30) of your last dictation |
+| `logging.save_audio` | `false` | keep clips in `data/clips` (turn on for shootout recordings) |
+| `logging.retention_days` | `7` | delete clips, log rows and log files older than this |
+| `notifications.consecutive_errors` | `3` | toast after this many failures in a row |
+| `routes.<name>.backend` | `openrouter` | `openrouter` or `native` |
 
-Keep the list focused on words you actually say: AssemblyAI uses at most 100 terms.
+Per route, `openrouter:` and `native:` blocks hold the model, extra request `body`, and how the vocabulary is sent (`vocab_path`, `vocab_max`, `vocab_join`, `vocab_template`).
 
-## Notifications
+</details>
 
-A Windows toast appears when a provider returns 401 (bad key), 402 (credits exhausted) or 429 (rate limited), when 3 requests in a row fail, or when a `config.yaml` edit is invalid. There's at most one toast per kind every 10 minutes. When a route on `backend: native` is rejected (401/402/403, e.g. free credits used up), the toast tells you to switch that route back to `backend: openrouter`. Settings are under `notifications:` in the config.
+<details>
+<summary><b>🔑 .env reference</b></summary>
 
-## Retention
+<br/>
 
-Saving audio is off by default (`logging.save_audio: false`). Turn it on only while recording shootout clips; it applies immediately.
-
-Saved clips in `data/clips`, request-log rows and daily `proxy.log` files older than `logging.retention_days` (default 7) are deleted at startup and every 6 hours. Labelled shootout clips in `shootout/clips` and the results CSVs are never deleted.
-
-## Restarting
-
-After changing `.env`, the server port or the proxy's code, restart it:
-- Running in a terminal: press Ctrl+C, then run `.\.venv\Scripts\python.exe -m proxy` again.
-- Running in the background: `powershell -ExecutionPolicy Bypass -File scripts\proxyctl.ps1 restart`
-
-## Auto-start on Windows login
-
-A Task Scheduler task starts the proxy with `pythonw` (no window) whenever you log in. No admin rights are needed. Task Scheduler is used rather than the Startup folder because it can restart the proxy if it fails and has no run-time limit.
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\install-autostart.ps1     # register and start now
-powershell -ExecutionPolicy Bypass -File scripts\proxyctl.ps1 status       # start | stop | restart | status
-powershell -ExecutionPolicy Bypass -File scripts\uninstall-autostart.ps1   # stop and remove
-```
-
-Stop any proxy running in a terminal first: only one process can use port 8765, and a second one exits with an error in `data\proxy.log`. While the background proxy runs, all output goes to `data\proxy.log`.
-
-## Errors
-
-There is no fallback between routes. Every failure returns an OpenAI-style error body (`{"error": {"message", "type", "code"}}`), so Spokenly can show the message:
-
-| Status | When |
+| Variable | Needed for |
 |---|---|
-| 400 | missing or empty audio file, unreadable form |
-| 401 | `PROXY_API_KEY` is set and Spokenly sent a different key |
-| 500 | `OPENROUTER_API_KEY` missing, or an internal proxy error |
-| 501 | the route's backend is not implemented yet (e.g. `native` before stage 6) |
-| 502 | the provider returned an error or an unreadable response; the message includes the provider's own error, plus a hint for 401/402/429 |
-| 504 | the provider took longer than `timeouts.request_s` (default 15 s) |
+| `OPENROUTER_API_KEY` | any route on `backend: openrouter` |
+| `ASSEMBLYAI_API_KEY` | `assembly` on `backend: native` |
+| `AZURE_SPEECH_KEY`, `AZURE_SPEECH_REGION` | `mai-clean` on `backend: native` (MAI-Transcribe runs in `northeurope`) |
+| `PROXY_API_KEY` | optional: require this key from Spokenly |
 
-The full error (status, headers, response body, traceback) goes to `data/proxy.log` and to the `error` column. The log rotates at 5 MB, keeping 3 old files.
+</details>
 
-## Latency
+---
 
-Each row records:
-- `upload_read_ms`: receiving the audio from Spokenly
-- `provider_latency_ms`: the proxy's round trip to the provider (upload, processing, response)
-- `or_latency_ms`, `or_provider`: OpenRouter's own latency figure and the provider it routed to, fetched in the background about 5–40 s after the response (OpenRouter needs a few seconds to publish them)
-- `total_latency_ms`: the whole request inside the proxy
+## 🧰 Tools
 
-`provider_latency_ms - or_latency_ms` is time spent outside the model: network, upload and OpenRouter routing. Summary per route:
+| Command | What it does |
+|---|---|
+| `scripts\stats.py` | latency percentiles, errors, provider and cost per route |
+| `scripts\vocab.py usage` | how often you actually say each vocabulary term |
+| `scripts\vocab.py suggest` | likely names/brands and inconsistently spelled words from your log |
+| `scripts\vocab.py add "Term"` | add to `vocabulary.txt` (applies instantly) |
+| `scripts\shootout.py sheet` | print the reading scripts to record |
+| `scripts\shootout.py import` | label your latest dictations as shootout clips |
+| `scripts\shootout.py run` | replay clips through every route and score them |
+| `scripts\probe_options.py` | re-check which OpenRouter provider options take effect |
+
+Run them with `.\.venv\Scripts\python.exe scripts\<name>.py`.
+
+<details>
+<summary><b>🏆 Running your own model shootout</b></summary>
+
+<br/>
+
+[`shootout/scripts.yaml`](shootout/scripts.yaml) has 7 reading scripts (5 short commands, a 15 s clip with a self-correction, and a 55 s paragraph) covering vocabulary, numbers, a percentage, an email address and natural hesitations. Each one stores the ideal clean transcript.
+
+1. Set `logging.save_audio: true` and print the scripts: `scripts\shootout.py sheet`
+2. Dictate each script through Spokenly, in order, as separate recordings.
+3. `scripts\shootout.py import` labels your last 7 clips (`--skip N` if you dictated more afterwards, `--ids mid1` to redo one).
+4. `scripts\shootout.py run --repeat 3` (add `--backend native` or `--routes assembly gpt` to narrow it down).
+
+Every clip and route is scored on **word error rate** (case, punctuation, "3 PM"/"3 p.m." and "12%"/"12 percent" ignored), **fillers kept**, **vocabulary missed** and **forbidden words** (like the "Tuesday" in "Tuesday, no, Wednesday"). Results go to `shootout/results/*.csv`; `shootout.py rescore <csv>` re-scores without new API calls.
+
+</details>
+
+---
+
+## 🪟 Run it in the background
+
+A Task Scheduler task starts the proxy silently with `pythonw` at every login. No admin rights are needed.
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\stats.py               # all requests
-.\.venv\Scripts\python.exe scripts\stats.py --since 2026-10-30
+powershell -ExecutionPolicy Bypass -File scripts\install-autostart.ps1     # register + start
+powershell -ExecutionPolicy Bypass -File scripts\proxyctl.ps1 restart      # start | stop | restart | status
+powershell -ExecutionPolicy Bypass -File scripts\uninstall-autostart.ps1   # remove
 ```
 
-## Model shootout
+Restart after changing `.env` or the code; config and vocabulary edits apply live. Logs go to `data\proxy.log`, one file per day.
 
-[shootout/scripts.yaml](shootout/scripts.yaml) holds 7 reading scripts:
-- 5 short commands (2–4 s)
-- one ~15 s clip with a self-correction ("next Tuesday, no, Wednesday")
-- one 45–60 s paragraph
+### 🔔 Notifications
 
-Together they cover the config vocabulary, numbers, a percentage, an email address and natural um/uh hesitations. Each script stores the ideal clean transcript, the vocabulary terms that must appear, and words that must not appear.
+A Windows toast appears when:
+- a provider rejects your key (401), runs out of credits (402) or rate-limits you (429)
+- a native route is rejected, with a hint to switch it back to `openrouter` (e.g. when free credits run out)
+- 3 requests in a row fail
+- a config edit is invalid
 
-1. With the proxy running, print the sheet:
-   ```powershell
-   .\.venv\Scripts\python.exe scripts\shootout.py sheet
-   ```
-2. Set `logging.save_audio: true` in `config.yaml` (applies without a restart). Then dictate each script through Spokenly as a separate recording, in order; any route works. Set it back to `false` after step 3.
-3. Label your last 7 clips with the script ids. This copies them to `shootout/clips/` and shows each transcript next to its script, so you can spot a mix-up:
-   ```powershell
-   .\.venv\Scripts\python.exe scripts\shootout.py import
-   ```
-   To redo one script, re-record it, then run `import --ids mid1`. If you dictated anything after the scripts, `import --skip N` ignores the N newest clips.
-4. Run the shootout:
-   ```powershell
-   .\.venv\Scripts\python.exe scripts\shootout.py run                                  # every route, shootout/clips
-   .\.venv\Scripts\python.exe scripts\shootout.py run --routes voxtral mai-clean --repeat 3
-   .\.venv\Scripts\python.exe scripts\shootout.py run data\clips                       # any clips; no scoring without a script
-   .\.venv\Scripts\python.exe scripts\shootout.py run --backend native                 # stage 6: same routes on native APIs
-   ```
+There's at most one toast per kind every 10 minutes.
 
-For every clip and route, the run prints:
-- the transcript and latency
-- **WER**: word errors divided by expected words; case, punctuation, "3 p.m." vs "3 PM" and "12%" vs "12 percent" don't count
-- **fillers**: um/uh tokens kept
-- **vocab miss**: required terms not spelled exactly
-- **forbidden**: words that shouldn't be there, e.g. the discarded "Tuesday"
+### 🧯 Errors Spokenly will show
 
-A per-route summary follows, and results are saved to `shootout/results/<timestamp>.csv`. Requests run one at a time, after warming up the connection, so latencies are comparable.
+| Status | Meaning |
+|---|---|
+| `400` | missing, empty or unreadable audio |
+| `401` | wrong `PROXY_API_KEY` |
+| `500` | an API key is missing in `.env`, or an internal error |
+| `501` | route has no `native:` block for `backend: native` |
+| `502` | the provider returned an error (its message is included) |
+| `504` | the provider took longer than `timeouts.request_s` |
 
-## Logs
+There's deliberately no automatic fallback between routes: a failure is shown, not hidden. The full error goes to the log and the request database.
 
-- `data/proxy.log`: one line per request, plus full request detail (redacted headers, every form field, file name/type/size, sniffed format, WAV sample rate) for the first `logging.detail_first_n` requests
-- `data/requests.sqlite`, table `requests`: timestamp, route, backend, audio format and duration, upload size, provider and total latency, OpenRouter cost, status, error, transcript, clip path
-- `data/clips/`: raw uploaded audio when `logging.save_audio` is true
+---
+
+## 🔒 Privacy
+
+- Binds to **127.0.0.1 only** and refuses any other address.
+- API keys stay in `.env` and are never logged; `Authorization` headers are redacted.
+- Audio is **not saved** by default. Clips, log rows and log files are deleted after 7 days.
+- `vocabulary.txt`, `.env`, `data/` and your shootout recordings are git-ignored.
+
+---
+
+## 🗂️ Project layout
+
+```
+proxy/
+  app.py          FastAPI app: endpoints, logging, hot reload, keep-warm
+  backends.py     OpenRouter + native AssemblyAI / Azure clients (pooled keep-alive)
+  translate.py    pure OpenAI <-> provider request/response translation
+  audio.py        format sniffing, WAV info, FLAC re-encoding
+  notify.py       Windows toasts
+  scoring.py      WER / filler / vocabulary scoring for the shootout
+  storage.py      SQLite request log
+  retention.py    7-day cleanup
+scripts/          stats, vocab, shootout, probe, auto-start
+shootout/         reading scripts (your clips and results are git-ignored)
+tests/            mocked end-to-end and translation tests
+```
+
+Run the tests with `.\.venv\Scripts\python.exe -m pytest -q tests`.
+
+---
+
+## ❓ FAQ
+
+<details>
+<summary><b>Does it work on macOS or Linux?</b></summary>
+<br/>
+The proxy itself is plain Python and should run anywhere. Auto-start, toasts and the PowerShell helpers are Windows-only. On other systems you'd start it with your own service manager; toasts simply don't appear.
+</details>
+
+<details>
+<summary><b>Why not just use Spokenly's built-in providers?</b></summary>
+<br/>
+They don't expose provider options like MAI-Transcribe's <i>clean</i> style or per-provider vocabulary formats, and you can't choose the upload format, region or backend. Measured end to end, this proxy cut latency 1.8–3.2× on AssemblyAI.
+</details>
+
+<details>
+<summary><b>Why does MAI-Transcribe occasionally take 10+ seconds?</b></summary>
+<br/>
+In the logs, OpenRouter's own latency figure covers those spikes, so they happen on the provider side (MAI-Transcribe 2 is in preview). Nothing local fixes them. If they bother you, use <code>assembly</code>.
+</details>
+
+<details>
+<summary><b>Can it handle self-corrections like "Tuesday, no, Wednesday"?</b></summary>
+<br/>
+No model tested resolves them. That would need an LLM cleanup pass after transcription, which adds noticeable latency.
+</details>
+
+---
+
+## 📜 License
+
+[MIT](LICENSE). Not affiliated with Spokenly, OpenRouter, AssemblyAI, Microsoft, OpenAI or any other provider mentioned. Names are used only to describe compatibility.
