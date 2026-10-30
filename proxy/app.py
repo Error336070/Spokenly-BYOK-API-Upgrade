@@ -247,7 +247,8 @@ def create_app(cfg: dict, backends: dict | None = None, config_path: Path | None
             if backend is None:
                 raise BackendError(f"backend '{route['backend']}' for route '{route_name}' is not "
                                    f"implemented yet; switch it to openrouter in config.yaml", 501)
-            result = await backend.transcribe(send_audio, send_fmt, route, language)
+            result = await backend.transcribe(send_audio, send_fmt, route, language,
+                                              audio_duration_s=row["audio_duration_s"])
         except Exception as e:
             if not isinstance(e, BackendError):
                 log.exception("unexpected error in route %s", route_name)

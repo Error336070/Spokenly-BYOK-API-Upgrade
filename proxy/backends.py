@@ -1,4 +1,5 @@
 """Provider backends. Each keeps pooled keep-alive HTTP clients."""
+import asyncio
 import json
 import time
 
@@ -57,13 +58,15 @@ def _parse(parser, data, label):
         raise BackendError(f"{label} returned an unreadable response: {e}", 502, str(data)) from e
 
 
-async def _request(client: httpx.AsyncClient, label: str, cfg: dict, hints: dict, method: str, url: str, **kw):
+async def _request(client: httpx.AsyncClient, label: str, cfg: dict, hints: dict, method: str, url: str, audio_duration_s: float | None = None, **kw):
     """Send with the live timeout config; map every failure to a BackendError. Returns (json, latency_ms, headers)."""
     t = cfg["timeouts"]
+    deadline = max(t["request_s"], t.get("base_s", 10) + t.get("per_audio_second_s", 0.15) * (audio_duration_s or 0))
     t0 = time.perf_counter()
     try:
-        r = await client.request(method, url, timeout=httpx.Timeout(t["request_s"], connect=t["connect_s"]), **kw)
-    except httpx.TimeoutException as e:
+        r = await asyncio.wait_for(client.request(
+            method, url, timeout=httpx.Timeout(deadline, connect=t["connect_s"]), **kw), deadline)
+    except (httpx.TimeoutException, asyncio.TimeoutError) as e:
         raise BackendError(f"{label} timed out after {time.perf_counter() - t0:.1f}s", 504,
                            f"{type(e).__name__}: {e!r}") from e
     except httpx.HTTPError as e:
@@ -105,7 +108,8 @@ class OpenRouterBackend:
             transport=transport,
         )
 
-    async def transcribe(self, audio: bytes, fmt: str, route: dict, language: str | None) -> dict:
+    async def transcribe(self, audio: bytes, fmt: str, route: dict, language: str | None,
+                         audio_duration_s: float | None = None) -> dict:
         if not self.has_key:
             raise BackendError("OPENROUTER_API_KEY is not set in the proxy's .env file", 500)
         vocab = self.cfg.get("vocabulary") or []
@@ -118,7 +122,8 @@ class OpenRouterBackend:
             body = build_openrouter_body(audio, fmt, route["openrouter"], language, vocab)
             kw = {"json": body}
         data, latency, headers = await _request(self.client, f"OpenRouter ({body['model']})", self.cfg,
-                                                _OPENROUTER_HINTS, "POST", "/audio/transcriptions", **kw)
+                                                _OPENROUTER_HINTS, "POST", "/audio/transcriptions",
+                                                audio_duration_s=audio_duration_s, **kw)
         out = _parse(parse_openrouter_response, data, "OpenRouter")
         out["provider_latency_ms"] = latency
         out["provider_model"] = body["model"]
@@ -156,7 +161,8 @@ class NativeBackend:
     def _settings(self, provider: str) -> dict:
         return (self.cfg.get("native") or {}).get(provider) or {}
 
-    async def transcribe(self, audio: bytes, fmt: str, route: dict, language: str | None) -> dict:
+    async def transcribe(self, audio: bytes, fmt: str, route: dict, language: str | None,
+                         audio_duration_s: float | None = None) -> dict:
         n = route.get("native")
         if not n:
             raise BackendError("this route has no native: block in config.yaml", 501)
@@ -164,11 +170,11 @@ class NativeBackend:
         if handler is None:
             raise BackendError(f"native provider '{n.get('provider')}' is not implemented", 501)
         payload = build_native_payload(n, self.cfg.get("vocabulary") or [])
-        out = await handler(audio, fmt, n, payload, language)
+        out = await handler(audio, fmt, n, payload, language, audio_duration_s)
         out.setdefault("cost", None)
         return out
 
-    async def _assemblyai(self, audio, fmt, n, config, language):
+    async def _assemblyai(self, audio, fmt, n, config, language, audio_duration_s):
         key = self.keys.get("assemblyai")
         if not key:
             raise BackendError("ASSEMBLYAI_API_KEY is not set in the proxy's .env file", 500)
@@ -180,6 +186,7 @@ class NativeBackend:
             self._client("assemblyai"), f"AssemblyAI ({model})", self.cfg,
             {401: " (check ASSEMBLYAI_API_KEY in .env)", 429: " (rate limited; try again shortly)"},
             "POST", s.get("base_url", "https://sync.eu.assemblyai.com").rstrip("/") + "/v1/transcribe",
+            audio_duration_s=audio_duration_s,
             headers={"Authorization": key, "X-AAI-Model": model},
             files={"audio": (f"audio.{fmt}", audio, _MIME.get(fmt, "application/octet-stream")),
                    "config": (None, json.dumps(config), "application/json")})
@@ -187,7 +194,7 @@ class NativeBackend:
         out.update(provider_latency_ms=latency, provider_model=f"assemblyai/{model}")
         return out
 
-    async def _azure(self, audio, fmt, n, definition, language):
+    async def _azure(self, audio, fmt, n, definition, language, audio_duration_s):
         key = self.keys.get("azure")
         endpoint = self.keys.get("azure_endpoint") or (
             f"https://{self.keys['azure_region']}.api.cognitive.microsoft.com" if self.keys.get("azure_region") else "")
@@ -202,6 +209,7 @@ class NativeBackend:
             self._client("azure"), f"Azure Speech ({model})", self.cfg,
             {401: " (check AZURE_SPEECH_KEY and the region in .env)", 429: " (rate limited; try again shortly)"},
             "POST", endpoint.rstrip("/") + "/speechtotext/transcriptions:transcribe",
+            audio_duration_s=audio_duration_s,
             params={"api-version": s.get("api_version", "2025-10-15")},
             headers={"Ocp-Apim-Subscription-Key": key},
             files={"audio": (f"audio.{fmt}", audio, _MIME.get(fmt, "application/octet-stream")),

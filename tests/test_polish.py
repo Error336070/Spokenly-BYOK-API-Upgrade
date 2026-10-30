@@ -55,7 +55,7 @@ def test_keep_warm_only_while_active(cfg):  # noqa: F811
         def __init__(self):
             self.warmups = 0
 
-        async def transcribe(self, *a):
+        async def transcribe(self, *a, **kw):
             return {"text": "hi", "provider_latency_ms": 1, "provider_model": "x"}
 
         async def warmup(self):

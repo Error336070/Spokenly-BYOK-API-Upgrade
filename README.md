@@ -186,7 +186,9 @@ The proxy reads three files. It reloads `config.yaml` and `vocabulary.txt` withi
 |---|---|---|
 | `default_route` | `mai-clean` | route for unknown model names |
 | `language` | `en` | used when Spokenly sends no language |
-| `timeouts.request_s` | `15` | seconds to wait for a provider |
+| `timeouts.request_s` | `15` | minimum total provider deadline in seconds |
+| `timeouts.base_s` | `10` | base of the duration-scaled deadline |
+| `timeouts.per_audio_second_s` | `0.15` | deadline seconds per audio second |
 | `upload.flac` | `true` | re-encode WAV to FLAC before sending |
 | `openrouter.multipart` | `true` | upload a raw file instead of base64 JSON |
 | `keep_warm.enabled` | `true` | ping providers every 120 s for 30 minutes after your last dictation |
@@ -272,7 +274,7 @@ When a request fails, Spokenly shows the proxy's error. The proxy never retries 
 | `500` | an API key is missing from `.env`, or the proxy hit an internal error |
 | `501` | the route is set to `backend: native` but has no `native:` block |
 | `502` | the provider returned an error, which the message includes |
-| `504` | the provider took longer than `timeouts.request_s` |
+| `504` | the provider exceeded `max(request_s, base_s + per_audio_second_s * WAV duration)` |
 
 ## Privacy
 

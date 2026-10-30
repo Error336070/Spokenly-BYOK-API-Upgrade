@@ -101,6 +101,8 @@ def validate(cfg) -> None:
     timeouts = mapping(cfg, "timeouts", True)
     for key in ("request_s", "connect_s"):
         number(timeouts, key, 0.001, True)
+    for key in ("base_s", "per_audio_second_s"):
+        number(timeouts, key)
     logging = mapping(cfg, "logging", True)
     for key in ("db_path", "clips_dir"):
         text(logging, key, True)
