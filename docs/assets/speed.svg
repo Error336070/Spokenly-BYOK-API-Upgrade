@@ -3,43 +3,43 @@
 <desc id="desc">Short commands went from 640 to 200 ms, 3.2 times faster. A 12 second dictation went from 969 to 551 ms, and a 55 second paragraph from 3254 to 1371 ms.</desc>
 <defs></defs>
 <style>
-  text { font-family: 'Segoe UI', 'Helvetica Neue', Helvetica, Arial, sans-serif; fill: #102A43; font-variant-numeric: tabular-nums; }
+  text { font-family: 'Segoe UI', 'Helvetica Neue', Helvetica, Arial, sans-serif; fill: #EFE7DA; font-variant-numeric: tabular-nums; }
   .serif { font-family: Georgia, 'Times New Roman', Times, serif; }
   .mono { font-family: Consolas, 'SFMono-Regular', Menlo, monospace; }
-  .muted { fill: #52667A; }
+  .muted { fill: #A39A8C; }
   
 </style>
-<rect x="1" y="1" width="1278" height="410" rx="14" fill="#EEF2F6" stroke="#C5D0DB" stroke-width="2"/>
+<rect x="1" y="1" width="1278" height="410" rx="14" fill="#211C18" stroke="#3B342D" stroke-width="2"/>
 
   <text class="serif" x="64" y="72" font-size="28" font-weight="700">AssemblyAI latency per dictation</text><text class="muted" x="64" y="102" font-size="15">Median of 3 runs on real recordings, October 2026. Milliseconds from upload to transcript.</text>
-  <circle cx="476" cy="128" r="6" fill="#EEF2F6" stroke="#52667A" stroke-width="2"/><text class="muted" x="490" y="133" font-size="13">before</text><circle cx="566" cy="128" r="5" fill="#486581"/><text class="muted" x="578" y="133" font-size="13">FLAC upload through OpenRouter</text><circle cx="800" cy="128" r="7" fill="#E03A3E"/><text class="muted" x="814" y="133" font-size="13">AssemblyAI's own API with FLAC</text><text class="muted" x="420" y="133" text-anchor="end" font-size="13">faster</text>
-  <line x1="470.0" x2="470.0" y1="138" y2="358" stroke="#C5D0DB"/><text class="muted" x="470.0" y="380" text-anchor="middle" font-size="13">0</text><line x1="578.8" x2="578.8" y1="138" y2="358" stroke="#C5D0DB"/><text class="muted" x="578.8" y="380" text-anchor="middle" font-size="13">500</text><line x1="687.6" x2="687.6" y1="138" y2="358" stroke="#C5D0DB"/><text class="muted" x="687.6" y="380" text-anchor="middle" font-size="13">1,000</text><line x1="796.5" x2="796.5" y1="138" y2="358" stroke="#C5D0DB"/><text class="muted" x="796.5" y="380" text-anchor="middle" font-size="13">1,500</text><line x1="905.3" x2="905.3" y1="138" y2="358" stroke="#C5D0DB"/><text class="muted" x="905.3" y="380" text-anchor="middle" font-size="13">2,000</text><line x1="1014.1" x2="1014.1" y1="138" y2="358" stroke="#C5D0DB"/><text class="muted" x="1014.1" y="380" text-anchor="middle" font-size="13">2,500</text><line x1="1122.9" x2="1122.9" y1="138" y2="358" stroke="#C5D0DB"/><text class="muted" x="1122.9" y="380" text-anchor="middle" font-size="13">3,000 ms</text>
+  <circle cx="476" cy="128" r="6" fill="#211C18" stroke="#A39A8C" stroke-width="2"/><text class="muted" x="490" y="133" font-size="13">before</text><circle cx="566" cy="128" r="5" fill="#C8B79E"/><text class="muted" x="578" y="133" font-size="13">FLAC upload through OpenRouter</text><circle cx="800" cy="128" r="7" fill="#F2B544"/><text class="muted" x="814" y="133" font-size="13">AssemblyAI's own API with FLAC</text><text class="muted" x="420" y="133" text-anchor="end" font-size="13">faster</text>
+  <line x1="470.0" x2="470.0" y1="138" y2="358" stroke="#3B342D"/><text class="muted" x="470.0" y="380" text-anchor="middle" font-size="13">0</text><line x1="578.8" x2="578.8" y1="138" y2="358" stroke="#3B342D"/><text class="muted" x="578.8" y="380" text-anchor="middle" font-size="13">500</text><line x1="687.6" x2="687.6" y1="138" y2="358" stroke="#3B342D"/><text class="muted" x="687.6" y="380" text-anchor="middle" font-size="13">1,000</text><line x1="796.5" x2="796.5" y1="138" y2="358" stroke="#3B342D"/><text class="muted" x="796.5" y="380" text-anchor="middle" font-size="13">1,500</text><line x1="905.3" x2="905.3" y1="138" y2="358" stroke="#3B342D"/><text class="muted" x="905.3" y="380" text-anchor="middle" font-size="13">2,000</text><line x1="1014.1" x2="1014.1" y1="138" y2="358" stroke="#3B342D"/><text class="muted" x="1014.1" y="380" text-anchor="middle" font-size="13">2,500</text><line x1="1122.9" x2="1122.9" y1="138" y2="358" stroke="#3B342D"/><text class="muted" x="1122.9" y="380" text-anchor="middle" font-size="13">3,000 ms</text>
   <text class="serif" x="64" y="166" font-size="20" font-weight="700">Short command</text>
   <text class="muted" x="64" y="186" font-size="13">2 to 4 seconds of audio</text>
   <text class="serif" x="420" y="177" text-anchor="end" font-size="28" font-weight="700">3.2x</text>
-  <line x1="513.5" x2="609.3" y1="168" y2="168" stroke="#102A43" stroke-width="2"/>
-  <circle cx="609.3" cy="168" r="7" fill="#EEF2F6" stroke="#52667A" stroke-width="2"/>
-  <circle cx="544.0" cy="168" r="5" fill="#486581"/>
-  <circle cx="513.5" cy="168" r="8" fill="#E03A3E"/>
+  <line x1="513.5" x2="609.3" y1="168" y2="168" stroke="#EFE7DA" stroke-width="2"/>
+  <circle cx="609.3" cy="168" r="7" fill="#211C18" stroke="#A39A8C" stroke-width="2"/>
+  <circle cx="544.0" cy="168" r="5" fill="#C8B79E"/>
+  <circle cx="513.5" cy="168" r="8" fill="#F2B544"/>
   <text class="muted" x="609.3" y="152" text-anchor="middle" font-size="13">640</text>
-  <text x="513.5" y="152" text-anchor="middle" font-size="14" font-weight="700" fill="#E03A3E">200</text>
+  <text x="513.5" y="152" text-anchor="middle" font-size="14" font-weight="700" fill="#F2B544">200</text>
   <text class="serif" x="64" y="248" font-size="20" font-weight="700">Dictation</text>
   <text class="muted" x="64" y="268" font-size="13">12 seconds of audio</text>
   <text class="serif" x="420" y="259" text-anchor="end" font-size="28" font-weight="700">1.8x</text>
-  <line x1="589.9" x2="680.9" y1="250" y2="250" stroke="#102A43" stroke-width="2"/>
-  <circle cx="680.9" cy="250" r="7" fill="#EEF2F6" stroke="#52667A" stroke-width="2"/>
-  <circle cx="608.4" cy="250" r="5" fill="#486581"/>
-  <circle cx="589.9" cy="250" r="8" fill="#E03A3E"/>
+  <line x1="589.9" x2="680.9" y1="250" y2="250" stroke="#EFE7DA" stroke-width="2"/>
+  <circle cx="680.9" cy="250" r="7" fill="#211C18" stroke="#A39A8C" stroke-width="2"/>
+  <circle cx="608.4" cy="250" r="5" fill="#C8B79E"/>
+  <circle cx="589.9" cy="250" r="8" fill="#F2B544"/>
   <text class="muted" x="680.9" y="234" text-anchor="middle" font-size="13">969</text>
-  <text x="589.9" y="234" text-anchor="middle" font-size="14" font-weight="700" fill="#E03A3E">551</text>
+  <text x="589.9" y="234" text-anchor="middle" font-size="14" font-weight="700" fill="#F2B544">551</text>
   <text class="serif" x="64" y="330" font-size="20" font-weight="700">Paragraph</text>
   <text class="muted" x="64" y="350" font-size="13">55 seconds of audio</text>
   <text class="serif" x="420" y="341" text-anchor="end" font-size="28" font-weight="700">2.4x</text>
-  <line x1="768.4" x2="1178.2" y1="332" y2="332" stroke="#102A43" stroke-width="2"/>
-  <circle cx="1178.2" cy="332" r="7" fill="#EEF2F6" stroke="#52667A" stroke-width="2"/>
-  <circle cx="825.0" cy="332" r="5" fill="#486581"/>
-  <circle cx="768.4" cy="332" r="8" fill="#E03A3E"/>
+  <line x1="768.4" x2="1178.2" y1="332" y2="332" stroke="#EFE7DA" stroke-width="2"/>
+  <circle cx="1178.2" cy="332" r="7" fill="#211C18" stroke="#A39A8C" stroke-width="2"/>
+  <circle cx="825.0" cy="332" r="5" fill="#C8B79E"/>
+  <circle cx="768.4" cy="332" r="8" fill="#F2B544"/>
   <text class="muted" x="1178.2" y="316" text-anchor="middle" font-size="13">3,254</text>
-  <text x="768.4" y="316" text-anchor="middle" font-size="14" font-weight="700" fill="#E03A3E">1,371</text>
+  <text x="768.4" y="316" text-anchor="middle" font-size="14" font-weight="700" fill="#F2B544">1,371</text>
 
 </svg>

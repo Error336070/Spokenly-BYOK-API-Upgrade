@@ -1,7 +1,7 @@
 """Generate the README's SVG graphics into docs/assets/.
 
-Design: a transcription editor's alignment view. Paper-coloured sheets, ink lines, Georgia for words
-that were spoken or written, and one accent, record red, used only for the audio signal.
+Design: a transcription editor's alignment view on a warm studio-console dark. Georgia for words that
+were spoken or written. VU-meter amber marks the signal and results; record red marks only recording.
 The banner is the only animated graphic; the others are static.
 
 Edit the data below and re-run:
@@ -17,12 +17,15 @@ SERIF = "Georgia, 'Times New Roman', Times, serif"
 SANS = "'Segoe UI', 'Helvetica Neue', Helvetica, Arial, sans-serif"
 MONO = "Consolas, 'SFMono-Regular', Menlo, monospace"
 
-PAPER = "#EEF2F6"
-INK = "#102A43"
-MUTED = "#52667A"
-RULE = "#C5D0DB"
-SLATE = "#486581"
-RED = "#E03A3E"
+PAPER = "#211C18"      # console: warm walnut dark, the sheet every graphic sits on
+INK = "#EFE7DA"        # paper-coloured text and spoken words
+MUTED = "#A39A8C"      # labels, axes, the returning transcript
+RULE = "#3B342D"       # gridlines and frames
+WAVE_IDLE = "#4A4239"  # audio the playhead has not reached yet
+TAPE = "#C8B79E"       # intermediate values
+AMBER = "#F2B544"      # VU-meter amber: the signal and the results
+RED = "#E5484D"        # record light: recording, playhead, key release only
+SLATE = MUTED
 
 # One real benchmark command, laid out as an alignment view: word, start px, end px, syllables
 WORDS = [("Open", 64, 168, 2), ("the", 196, 252, 1), ("OpenRouter", 282, 586, 4), ("dashboard.", 616, 864, 3)]
@@ -97,7 +100,7 @@ def banner():
         p = (a - WAVE_X0) / width * sweep
         words.append(f"""
   <g class="w{i}">
-    <path d="M{a} 352 v-6 H{b} v6" fill="none" stroke="{SLATE}" stroke-width="1.5"/>
+    <path d="M{a} 352 v-6 H{b} v6" fill="none" stroke="{MUTED}" stroke-width="1.5"/>
     <text class="serif" x="{a}" y="380" font-size="24">{word}</text>
     <text class="muted" x="{a}" y="404" font-size="13">{seconds:.2f} s</text>
   </g>""")
@@ -112,8 +115,8 @@ def banner():
   <circle cx="72" cy="196" r="6" fill="{RED}"/>
   <text x="88" y="201" font-size="14" font-weight="600" fill="{RED}">Push-to-talk recording</text>
 
-  <g fill="{RULE}">{''.join(wave)}</g>
-  <g clip-path="url(#heard)"><g fill="{INK}">{''.join(wave)}</g></g>
+  <g fill="{WAVE_IDLE}">{''.join(wave)}</g>
+  <g clip-path="url(#heard)"><g fill="{AMBER}">{''.join(wave)}</g></g>
   <line x1="{WAVE_X0}" x2="{WAVE_X1}" y1="{cy}" y2="{cy}" stroke="{RULE}" stroke-width="1"/>
   {''.join(words)}
 
@@ -125,7 +128,7 @@ def banner():
     <text x="{RELEASE_X + 12}" y="228" font-size="14" font-weight="600" fill="{RED}">Key released</text>
     <path class="dim" d="M{RELEASE_X} 300 H1040" fill="none" stroke="{INK}" stroke-width="2" stroke-dasharray="{dim_len}"/>
     <path d="M1040 290 v20" stroke="{INK}" stroke-width="2"/>
-    <text x="{RELEASE_X + 12}" y="282" font-size="34" font-weight="700">200 ms</text>
+    <text x="{RELEASE_X + 12}" y="282" font-size="34" font-weight="700" fill="{AMBER}">200 ms</text>
     <text class="serif" x="{RELEASE_X + 12}" y="346" font-size="21">Open the OpenRouter dashboard.</text>
     <text class="muted" x="{RELEASE_X + 12}" y="368" font-size="13">appears in Spokenly</text>
   </g>
@@ -167,11 +170,11 @@ def pipeline():
                      f'<text x="{x}" y="{y + 46}" text-anchor="middle" font-size="15" font-weight="600">{title}</text>'
                      f'<text class="muted" x="{x}" y="{y + 66}" text-anchor="middle" font-size="13">{sub}</text>')
     arrow = lambda x, yy, d="right": (
-        f'<path d="M{x} {yy} l-9 -5 v10 z" fill="{RED}"/>' if d == "right" else
-        f'<path d="M{x} {yy} l9 -5 v10 z" fill="{SLATE}"/>' if d == "left" else
-        f'<path d="M{x} {yy} l-5 9 h10 z" fill="{SLATE}"/>')
+        f'<path d="M{x} {yy} l-9 -5 v10 z" fill="{AMBER}"/>' if d == "right" else
+        f'<path d="M{x} {yy} l9 -5 v10 z" fill="{MUTED}"/>' if d == "left" else
+        f'<path d="M{x} {yy} l-5 9 h10 z" fill="{MUTED}"/>')
     body = f"""
-  {heading("How a dictation travels", "Red carries your audio. Blue carries the transcript back.")}
+  {heading("How a dictation travels", "Amber carries your audio. The dashed line brings the transcript back.")}
 
   <g fill="none" stroke="{INK}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
     <rect x="128" y="214" width="32" height="54" rx="16"/>
@@ -187,14 +190,14 @@ def pipeline():
   <text class="muted" x="352" y="378" font-size="13">Logs every request to SQLite with its latency, cost and transcript.</text>
 
   <path d="M190 {y} H415 M445 {y} H585 M615 {y} H755 M785 {y} H900 V176 H960 M900 {y} V352 H960"
-        fill="none" stroke="{RED}" stroke-width="2.5"/>
+        fill="none" stroke="{AMBER}" stroke-width="2.5"/>
   {arrow(330, y)}{arrow(960, 176)}{arrow(960, 352)}
-  <text x="214" y="{y - 12}" font-size="13" fill="{RED}">audio and</text>
-  <text x="214" y="{y + 22}" font-size="13" fill="{RED}">route name</text>
+  <text x="214" y="{y - 12}" font-size="13" fill="{AMBER}">audio and</text>
+  <text x="214" y="{y + 22}" font-size="13" fill="{AMBER}">route name</text>
   {''.join(nodes)}
 
-  <text class="mono" x="908" y="{y - 34}" font-size="13" fill="{RED}">backend: openrouter</text>
-  <text class="mono" x="908" y="{y + 44}" font-size="13" fill="{RED}">backend: native</text>
+  <text class="mono" x="908" y="{y - 34}" font-size="13" fill="{AMBER}">backend: openrouter</text>
+  <text class="mono" x="908" y="{y + 44}" font-size="13" fill="{AMBER}">backend: native</text>
 
   <line x1="980" x2="980" y1="152" y2="204" stroke="{INK}" stroke-width="2"/>
   <text class="serif" x="996" y="172" font-size="20" font-weight="700">OpenRouter</text>
@@ -204,9 +207,9 @@ def pipeline():
   <text class="serif" x="996" y="348" font-size="20" font-weight="700">Provider's own API</text>
   <text class="muted" x="996" y="372" font-size="13">AssemblyAI Sync API in the EU</text>
 
-  <path d="M1140 382 V448 H144 V378" fill="none" stroke="{SLATE}" stroke-width="2" stroke-dasharray="7 5"/>
+  <path d="M1140 382 V448 H144 V378" fill="none" stroke="{MUTED}" stroke-width="2" stroke-dasharray="7 5"/>
   {arrow(144, 372, "up")}
-  <text x="620" y="472" text-anchor="middle" font-size="13" fill="{SLATE}">transcript, returned in OpenAI's format</text>
+  <text x="620" y="472" text-anchor="middle" font-size="13" fill="{MUTED}">transcript, returned in OpenAI's format</text>
 """
     return frame(1280, 500, "How a dictation travels",
                  "Spokenly records WAV audio and sends it with a route name to the local proxy. The proxy picks "
@@ -236,15 +239,15 @@ def speed():
   <text class="serif" x="420" y="{y + 9}" text-anchor="end" font-size="28" font-weight="700">{before / native:.1f}x</text>
   <line x1="{xn:.1f}" x2="{xb:.1f}" y1="{y}" y2="{y}" stroke="{INK}" stroke-width="2"/>
   <circle cx="{xb:.1f}" cy="{y}" r="7" fill="{PAPER}" stroke="{MUTED}" stroke-width="2"/>
-  <circle cx="{xf:.1f}" cy="{y}" r="5" fill="{SLATE}"/>
-  <circle cx="{xn:.1f}" cy="{y}" r="8" fill="{RED}"/>
+  <circle cx="{xf:.1f}" cy="{y}" r="5" fill="{TAPE}"/>
+  <circle cx="{xn:.1f}" cy="{y}" r="8" fill="{AMBER}"/>
   <text class="muted" x="{xb:.1f}" y="{y - 16}" text-anchor="middle" font-size="13">{before:,}</text>
-  <text x="{xn:.1f}" y="{y - 16}" text-anchor="middle" font-size="14" font-weight="700" fill="{RED}">{native:,}</text>""")
+  <text x="{xn:.1f}" y="{y - 16}" text-anchor="middle" font-size="14" font-weight="700" fill="{AMBER}">{native:,}</text>""")
     legend = (f'<circle cx="{x0 + 6}" cy="128" r="6" fill="{PAPER}" stroke="{MUTED}" stroke-width="2"/>'
               f'<text class="muted" x="{x0 + 20}" y="133" font-size="13">before</text>'
-              f'<circle cx="{x0 + 96}" cy="128" r="5" fill="{SLATE}"/>'
+              f'<circle cx="{x0 + 96}" cy="128" r="5" fill="{TAPE}"/>'
               f'<text class="muted" x="{x0 + 108}" y="133" font-size="13">FLAC upload through OpenRouter</text>'
-              f'<circle cx="{x0 + 330}" cy="128" r="7" fill="{RED}"/>'
+              f'<circle cx="{x0 + 330}" cy="128" r="7" fill="{AMBER}"/>'
               f'<text class="muted" x="{x0 + 344}" y="133" font-size="13">AssemblyAI\'s own API with FLAC</text>'
               f'<text class="muted" x="420" y="133" text-anchor="end" font-size="13">faster</text>')
     body = f"""
@@ -264,7 +267,7 @@ def shootout():
     xmax, ymax = 3000, 13
     px = lambda ms: L + ms / xmax * (R - L)
     py = lambda wer: B - wer / ymax * (B - T)
-    parts = [f'<rect x="{L}" y="{py(4):.0f}" width="{px(1200) - L:.0f}" height="{B - py(4):.0f}" fill="{RULE}" fill-opacity="0.35"/>',
+    parts = [f'<rect x="{L}" y="{py(4):.0f}" width="{px(1200) - L:.0f}" height="{B - py(4):.0f}" fill="{RULE}" fill-opacity="0.55"/>',
              f'<text class="muted" x="{L + 12}" y="{B - 12}" font-size="13">faster and more accurate</text>']
     for ms in range(0, xmax + 1, 500):
         label = f"{ms:,}" + (" ms" if ms == xmax else "")
@@ -277,7 +280,7 @@ def shootout():
     for name, ms, wer, fill, kept, side in SHOOTOUT:
         x, y, r = px(ms), py(wer), 7 + fill * 2.6
         if kept:
-            parts.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{r}" fill="{INK}"/>')
+            parts.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{r}" fill="{AMBER}"/>')
         else:
             parts.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{r}" fill="{PAPER}" fill-opacity="0.7" stroke="{MUTED}" stroke-width="1.5"/>')
         dx, dy, anchor = {"right": (r + 10, 5, "start"), "left": (-r - 10, 5, "end"),
@@ -285,7 +288,7 @@ def shootout():
         cls = 'class="serif" font-size="17" font-weight="700"' if kept else 'class="muted" font-size="14"'
         parts.append(f'<text {cls} x="{x + dx:.1f}" y="{y + dy:.1f}" text-anchor="{anchor}">{name}'
                      f'<tspan class="muted" font-family="{SANS}" font-size="13" font-weight="400"> {wer}%</tspan></text>')
-    legend = (f'<circle cx="760" cy="96" r="7" fill="{INK}"/><text class="muted" x="774" y="101" font-size="13">kept in the default config</text>'
+    legend = (f'<circle cx="760" cy="96" r="7" fill="{AMBER}"/><text class="muted" x="774" y="101" font-size="13">kept in the default config</text>'
               f'<circle cx="958" cy="96" r="7" fill="{PAPER}" stroke="{MUTED}" stroke-width="1.5"/><text class="muted" x="972" y="101" font-size="13">dropped after testing</text>'
               f'<circle cx="1128" cy="96" r="12" fill="none" stroke="{MUTED}" stroke-width="1.5"/><text class="muted" x="1146" y="101" font-size="13">more fillers</text>')
     body = f"""

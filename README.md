@@ -3,11 +3,11 @@
 </p>
 
 <p align="center">
-  <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.10+-486581?style=flat-square&labelColor=102A43&logo=python&logoColor=white" alt="Python 3.10+"></a>
-  <a href="https://fastapi.tiangolo.com/"><img src="https://img.shields.io/badge/FastAPI-local_proxy-486581?style=flat-square&labelColor=102A43&logo=fastapi&logoColor=white" alt="FastAPI"></a>
-  <a href="#run-it-in-the-background"><img src="https://img.shields.io/badge/Windows-10_and_11-486581?style=flat-square&labelColor=102A43&logo=windows11&logoColor=white" alt="Windows 10 and 11"></a>
-  <a href="#connect-spokenly"><img src="https://img.shields.io/badge/API-OpenAI_compatible-486581?style=flat-square&labelColor=102A43&logo=openai&logoColor=white" alt="OpenAI-compatible API"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-E03A3E?style=flat-square&labelColor=102A43" alt="MIT license"></a>
+  <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.10+-5A4E40?style=flat-square&labelColor=211C18&logo=python&logoColor=white" alt="Python 3.10+"></a>
+  <a href="https://fastapi.tiangolo.com/"><img src="https://img.shields.io/badge/FastAPI-local_proxy-5A4E40?style=flat-square&labelColor=211C18&logo=fastapi&logoColor=white" alt="FastAPI"></a>
+  <a href="#run-it-in-the-background"><img src="https://img.shields.io/badge/Windows-10_and_11-5A4E40?style=flat-square&labelColor=211C18&logo=windows11&logoColor=white" alt="Windows 10 and 11"></a>
+  <a href="#connect-spokenly"><img src="https://img.shields.io/badge/API-OpenAI_compatible-5A4E40?style=flat-square&labelColor=211C18&logo=openai&logoColor=white" alt="OpenAI-compatible API"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-F2B544?style=flat-square&labelColor=211C18" alt="MIT license"></a>
 </p>
 
 <p align="center">

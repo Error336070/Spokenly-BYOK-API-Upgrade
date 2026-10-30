@@ -3,17 +3,17 @@
 <desc id="desc">Spokenly records WAV audio and sends it with a route name to the local proxy. The proxy picks the route, re-encodes the audio to FLAC, adds provider options and vocabulary, and sends it to OpenRouter or the provider's own API. The transcript returns to Spokenly in OpenAI's format.</desc>
 <defs></defs>
 <style>
-  text { font-family: 'Segoe UI', 'Helvetica Neue', Helvetica, Arial, sans-serif; fill: #102A43; font-variant-numeric: tabular-nums; }
+  text { font-family: 'Segoe UI', 'Helvetica Neue', Helvetica, Arial, sans-serif; fill: #EFE7DA; font-variant-numeric: tabular-nums; }
   .serif { font-family: Georgia, 'Times New Roman', Times, serif; }
   .mono { font-family: Consolas, 'SFMono-Regular', Menlo, monospace; }
-  .muted { fill: #52667A; }
+  .muted { fill: #A39A8C; }
   
 </style>
-<rect x="1" y="1" width="1278" height="498" rx="14" fill="#EEF2F6" stroke="#C5D0DB" stroke-width="2"/>
+<rect x="1" y="1" width="1278" height="498" rx="14" fill="#211C18" stroke="#3B342D" stroke-width="2"/>
 
-  <text class="serif" x="64" y="72" font-size="28" font-weight="700">How a dictation travels</text><text class="muted" x="64" y="102" font-size="15">Red carries your audio. Blue carries the transcript back.</text>
+  <text class="serif" x="64" y="72" font-size="28" font-weight="700">How a dictation travels</text><text class="muted" x="64" y="102" font-size="15">Amber carries your audio. The dashed line brings the transcript back.</text>
 
-  <g fill="none" stroke="#102A43" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <g fill="none" stroke="#EFE7DA" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
     <rect x="128" y="214" width="32" height="54" rx="16"/>
     <path d="M116 250 a28 28 0 0 0 56 0 M144 278 v14 M128 292 h32"/>
   </g>
@@ -21,31 +21,31 @@
   <text class="muted" x="144" y="346" text-anchor="middle" font-size="13">records WAV while you</text>
   <text class="muted" x="144" y="363" text-anchor="middle" font-size="13">hold the key</text>
 
-  <rect x="330" y="150" width="540" height="248" rx="6" fill="none" stroke="#102A43" stroke-width="1.5"/>
+  <rect x="330" y="150" width="540" height="248" rx="6" fill="none" stroke="#EFE7DA" stroke-width="1.5"/>
   <text class="serif" x="352" y="186" font-size="20" font-weight="700">Dictation proxy</text>
   <text class="muted" x="852" y="186" text-anchor="end" font-size="13">listens on 127.0.0.1:8765</text>
   <text class="muted" x="352" y="378" font-size="13">Logs every request to SQLite with its latency, cost and transcript.</text>
 
   <path d="M190 262 H415 M445 262 H585 M615 262 H755 M785 262 H900 V176 H960 M900 262 V352 H960"
-        fill="none" stroke="#E03A3E" stroke-width="2.5"/>
-  <path d="M330 262 l-9 -5 v10 z" fill="#E03A3E"/><path d="M960 176 l-9 -5 v10 z" fill="#E03A3E"/><path d="M960 352 l-9 -5 v10 z" fill="#E03A3E"/>
-  <text x="214" y="250" font-size="13" fill="#E03A3E">audio and</text>
-  <text x="214" y="284" font-size="13" fill="#E03A3E">route name</text>
-  <circle cx="430" cy="262" r="15" fill="#EEF2F6" stroke="#102A43" stroke-width="2"/><text x="430" y="267" text-anchor="middle" font-size="14" font-weight="700">1</text><text x="430" y="308" text-anchor="middle" font-size="15" font-weight="600">Pick the route</text><text class="muted" x="430" y="328" text-anchor="middle" font-size="13">from the model name</text><circle cx="600" cy="262" r="15" fill="#EEF2F6" stroke="#102A43" stroke-width="2"/><text x="600" y="267" text-anchor="middle" font-size="14" font-weight="700">2</text><text x="600" y="308" text-anchor="middle" font-size="15" font-weight="600">Re-encode to FLAC</text><text class="muted" x="600" y="328" text-anchor="middle" font-size="13">45% of the WAV size</text><circle cx="770" cy="262" r="15" fill="#EEF2F6" stroke="#102A43" stroke-width="2"/><text x="770" y="267" text-anchor="middle" font-size="14" font-weight="700">3</text><text x="770" y="308" text-anchor="middle" font-size="15" font-weight="600">Add options</text><text class="muted" x="770" y="328" text-anchor="middle" font-size="13">and your vocabulary</text>
+        fill="none" stroke="#F2B544" stroke-width="2.5"/>
+  <path d="M330 262 l-9 -5 v10 z" fill="#F2B544"/><path d="M960 176 l-9 -5 v10 z" fill="#F2B544"/><path d="M960 352 l-9 -5 v10 z" fill="#F2B544"/>
+  <text x="214" y="250" font-size="13" fill="#F2B544">audio and</text>
+  <text x="214" y="284" font-size="13" fill="#F2B544">route name</text>
+  <circle cx="430" cy="262" r="15" fill="#211C18" stroke="#EFE7DA" stroke-width="2"/><text x="430" y="267" text-anchor="middle" font-size="14" font-weight="700">1</text><text x="430" y="308" text-anchor="middle" font-size="15" font-weight="600">Pick the route</text><text class="muted" x="430" y="328" text-anchor="middle" font-size="13">from the model name</text><circle cx="600" cy="262" r="15" fill="#211C18" stroke="#EFE7DA" stroke-width="2"/><text x="600" y="267" text-anchor="middle" font-size="14" font-weight="700">2</text><text x="600" y="308" text-anchor="middle" font-size="15" font-weight="600">Re-encode to FLAC</text><text class="muted" x="600" y="328" text-anchor="middle" font-size="13">45% of the WAV size</text><circle cx="770" cy="262" r="15" fill="#211C18" stroke="#EFE7DA" stroke-width="2"/><text x="770" y="267" text-anchor="middle" font-size="14" font-weight="700">3</text><text x="770" y="308" text-anchor="middle" font-size="15" font-weight="600">Add options</text><text class="muted" x="770" y="328" text-anchor="middle" font-size="13">and your vocabulary</text>
 
-  <text class="mono" x="908" y="228" font-size="13" fill="#E03A3E">backend: openrouter</text>
-  <text class="mono" x="908" y="306" font-size="13" fill="#E03A3E">backend: native</text>
+  <text class="mono" x="908" y="228" font-size="13" fill="#F2B544">backend: openrouter</text>
+  <text class="mono" x="908" y="306" font-size="13" fill="#F2B544">backend: native</text>
 
-  <line x1="980" x2="980" y1="152" y2="204" stroke="#102A43" stroke-width="2"/>
+  <line x1="980" x2="980" y1="152" y2="204" stroke="#EFE7DA" stroke-width="2"/>
   <text class="serif" x="996" y="172" font-size="20" font-weight="700">OpenRouter</text>
   <text class="muted" x="996" y="196" font-size="13">MAI-Transcribe 2, AssemblyAI, GPT Transcribe</text>
 
-  <line x1="980" x2="980" y1="328" y2="380" stroke="#102A43" stroke-width="2"/>
+  <line x1="980" x2="980" y1="328" y2="380" stroke="#EFE7DA" stroke-width="2"/>
   <text class="serif" x="996" y="348" font-size="20" font-weight="700">Provider's own API</text>
   <text class="muted" x="996" y="372" font-size="13">AssemblyAI Sync API in the EU</text>
 
-  <path d="M1140 382 V448 H144 V378" fill="none" stroke="#486581" stroke-width="2" stroke-dasharray="7 5"/>
-  <path d="M144 372 l-5 9 h10 z" fill="#486581"/>
-  <text x="620" y="472" text-anchor="middle" font-size="13" fill="#486581">transcript, returned in OpenAI's format</text>
+  <path d="M1140 382 V448 H144 V378" fill="none" stroke="#A39A8C" stroke-width="2" stroke-dasharray="7 5"/>
+  <path d="M144 372 l-5 9 h10 z" fill="#A39A8C"/>
+  <text x="620" y="472" text-anchor="middle" font-size="13" fill="#A39A8C">transcript, returned in OpenAI's format</text>
 
 </svg>
