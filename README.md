@@ -333,15 +333,7 @@ Spokenly can't send provider options such as MAI-Transcribe's clean style or a p
 <summary><b>Why does MAI-Transcribe sometimes take 10 seconds or more?</b></summary>
 <br>
 
-For those requests, OpenRouter's own latency figure was just as long, so the delay happened at the provider. MAI-Transcribe 2 is still in preview. The proxy can't speed those requests up. If they bother you, use `assembly`.
-
-</details>
-
-<details>
-<summary><b>Can it fix self-corrections like "Tuesday, no, Wednesday"?</b></summary>
-<br>
-
-No model I tested removes the corrected part. Doing that would need a language model to rewrite each transcript, which would add noticeable delay.
+For those requests, OpenRouter's own latency figure was just as long, so the delay happened at the provider. MAI-Transcribe 2 is still in preview. The proxy can't speed those requests up. If they bother you, use `assembly`, which is generally the better model anyway.
 
 </details>
 
