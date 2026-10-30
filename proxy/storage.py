@@ -36,6 +36,8 @@ class RequestLog:
     def __init__(self, db_path: str):
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(db_path, check_same_thread=False)
+        self._conn.execute("PRAGMA journal_mode=WAL")
+        self._conn.execute("PRAGMA synchronous=NORMAL")
         cols = ", ".join(f"{n} {t}" for n, t in _COLUMNS)
         self._conn.execute(f"CREATE TABLE IF NOT EXISTS requests (id INTEGER PRIMARY KEY AUTOINCREMENT, {cols})")
         existing = {r[1] for r in self._conn.execute("PRAGMA table_info(requests)")}

@@ -88,7 +88,7 @@ Add a custom OpenAI-compatible transcription provider in Spokenly with these val
 2. The route in `config.yaml` names the backend and the provider options.
 3. The proxy re-encodes WAV to FLAC in about 10 ms and uploads it as a raw file.
 4. The transcript goes back to Spokenly in the format it asked for. The proxy supports `json`, `text`, `verbose_json`, `srt` and `vtt`.
-5. The proxy logs the request. For OpenRouter requests it also fetches OpenRouter's own latency figure in the background, so you can separate model time from network time.
+5. The proxy logs the request off the event loop. Logging and clip-save errors are logged without discarding the transcript. `total_latency_ms` ends when transcription finishes, before the request-log write. For OpenRouter requests it also fetches OpenRouter's own latency figure in the background, so you can separate model time from network time.
 
 ## Benchmarks
 

@@ -45,6 +45,26 @@ def create_app(cfg: dict, backends: dict | None = None, config_path: Path | None
         bg_tasks.add(task)
         task.add_done_callback(bg_tasks.discard)
 
+    async def db_write(method, *args, **kwargs):
+        try:
+            return await asyncio.to_thread(method, *args, **kwargs)
+        except Exception:
+            log.exception("request-log write failed")
+            return None
+
+    async def save_clip(audio, fmt):
+        def write():
+            d = Path(cfg["logging"]["clips_dir"])
+            d.mkdir(parents=True, exist_ok=True)
+            path = d / f"{datetime.now():%Y%m%d-%H%M%S}-{uuid.uuid4().hex[:6]}.{fmt}"
+            path.write_bytes(audio)
+            return str(path)
+        try:
+            return await asyncio.to_thread(write)
+        except Exception:
+            log.exception("clip save failed")
+            return None
+
     def reload_config():
         try:
             new = load_config(config_path)
@@ -111,7 +131,7 @@ def create_app(cfg: dict, backends: dict | None = None, config_path: Path | None
             app.state.backends = build_backends(cfg, env)
         else:
             app.state.backends = backends
-        app.state.db = RequestLog(cfg["logging"]["db_path"])
+        app.state.db = await asyncio.to_thread(RequestLog, cfg["logging"]["db_path"])
         app.state.notifier = notifier
         spawn(periodic_cleanup())
         spawn(keep_warm())
@@ -151,7 +171,7 @@ def create_app(cfg: dict, backends: dict | None = None, config_path: Path | None
             await asyncio.sleep(delay)
             d = await backend.generation(gen_id)
             if d:
-                app.state.db.update(row_id, or_latency_ms=d.get("latency"), or_provider=d.get("provider_name"))
+                await db_write(app.state.db.update, row_id, or_latency_ms=d.get("latency"), or_provider=d.get("provider_name"))
                 return
         log.info("no generation stats for %s", gen_id)
 
@@ -207,10 +227,7 @@ def create_app(cfg: dict, backends: dict | None = None, config_path: Path | None
 
         clip_path = None
         if cfg["logging"]["save_audio"]:
-            d = Path(cfg["logging"]["clips_dir"])
-            d.mkdir(parents=True, exist_ok=True)
-            clip_path = d / f"{datetime.now():%Y%m%d-%H%M%S}-{uuid.uuid4().hex[:6]}.{fmt}"
-            clip_path.write_bytes(audio)
+            clip_path = await save_clip(audio, fmt)
 
         row = {
             "ts": datetime.now().isoformat(timespec="milliseconds"),
@@ -236,7 +253,7 @@ def create_app(cfg: dict, backends: dict | None = None, config_path: Path | None
                 log.exception("unexpected error in route %s", route_name)
                 e = BackendError(f"Dictation Proxy internal error: {type(e).__name__}: {e}", 500, repr(e))
             row.update(status="error", http_status=e.status, error=e.detail, total_latency_ms=_ms(t0))
-            app.state.db.insert(row)
+            await db_write(app.state.db.insert, row)
             notifier.error(route_name, str(e), getattr(e, "upstream_status", None), route["backend"])
             log.error("route %s failed after %.0f ms: %s | %s", route_name, row["total_latency_ms"], e, e.detail)
             kind = {504: "timeout", 501: "not_implemented", 500: "internal_error"}.get(e.status, "upstream_error")
@@ -249,13 +266,13 @@ def create_app(cfg: dict, backends: dict | None = None, config_path: Path | None
             cost=result.get("cost"), generation_id=result.get("generation_id"),
             transcript=result["text"], total_latency_ms=_ms(t0),
         )
-        row_id = app.state.db.insert(row)
+        row_id = await db_write(app.state.db.insert, row)
         notifier.success()
         log.info("%s/%s %.1fs audio, read %.0f ms, provider %.0f ms, total %.0f ms, cost %s: %s",
                  route_name, route["backend"], duration or 0, upload_read_ms, row["provider_latency_ms"],
                  row["total_latency_ms"], row["cost"], result["text"][:120])
 
-        if row["generation_id"] and hasattr(backend, "generation"):
+        if row_id is not None and row["generation_id"] and hasattr(backend, "generation"):
             spawn(fetch_generation_stats(backend, row_id, row["generation_id"]))
 
         body, media_type = format_response(result["text"], str(fields.get("response_format") or ""),
