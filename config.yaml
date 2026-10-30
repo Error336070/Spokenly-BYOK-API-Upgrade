@@ -28,7 +28,7 @@ credit:
   # Sync API price from assemblyai.com/products/sync-speech-to-text (2026-10-30), keyterms included.
   # A third-party report says it dropped to 0.30 on 2026-10-25; 0.45 keeps the estimate on the safe side.
   assemblyai_hourly_rate_usd: 0.45
-  assemblyai_starting_credit_usd: 200  # free credits on this account; new accounts get 50
+  assemblyai_starting_credit_usd: 50   # free signup credits on this account
 
 timeouts:
   connect_s: 5
