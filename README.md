@@ -234,7 +234,7 @@ Run each one with `.\.venv\Scripts\python.exe scripts\<name>.py`.
 | Command | Result |
 |---|---|
 | `stats.py` | latency, errors and cost per backend, audio minutes, AssemblyAI request times and request ids, and how often a request opened a new connection after each length of pause. `--since` limits these to a period. The AssemblyAI credit estimate always covers all tracked requests. |
-| `retry.py [clip]` | sends the newest pending failed clip, or the one you name, through the proxy on its original route and prints the text. `--copy` also puts it on the clipboard. `--list` shows the pending clips. A nonempty transcript marks the clip recovered in its `.json` file, and the audio stays until retention deletes it. A failed or empty retry leaves it pending, prints the reason and exits with code 1. |
+| `retry.py [clip]` | sends the newest pending failed clip, or the one you name, through the proxy on its original route and prints the text. `--copy` also puts it on the clipboard. `--list` shows the pending clips. A nonempty transcript marks the clip recovered in its `.json` file, and the audio stays until retention deletes it. If the same audio fails again in the proxy while a retry is in flight, that retry's result does not mark the clip recovered, so the newer failure stays pending. A failed or empty retry leaves it pending, prints the reason and exits with code 1. |
 | `vocab.py usage` | how often you say each term, and which terms are past a route's `vocab_max` |
 | `vocab.py suggest --min 2` | likely names, spelling variants, and phrases close to a vocabulary term but not exact, ranked by how many dictations contain them |
 | `vocab.py add "Term"` | adds a term to `vocabulary.txt`, and warns when a route's `vocab_max` leaves the new term out. It uses the config named by `PROXY_CONFIG` when that is set. |
@@ -303,7 +303,7 @@ When a request fails, Spokenly shows the proxy's error. The proxy never retries 
 
 - The proxy listens on `127.0.0.1` and refuses to start on any other address. It rejects requests from web pages, so a site open in your browser can't spend your credits through it.
 - API keys stay in `.env`. The log redacts `Authorization` headers.
-- The proxy saves audio only when `save_audio` is on, when a request fails, or when a clip over 2 seconds comes back empty. Failed clips go to `data/failed` so `retry.py` can send them again. If the same audio fails again on the same route and language, the proxy reuses the saved file and marks it pending again. Updates from the proxy, retries and retention share a directory lock. The proxy deletes recordings, log rows and log files after 7 days.
+- The proxy saves audio only when `save_audio` is on, when a request fails, or when a clip over 2 seconds comes back empty. Failed clips go to `data/failed` so `retry.py` can send them again. If the same audio fails again on the same route and language, the proxy reuses the saved file and marks it pending again. Each such failure raises a generation number in the `.json` file, and a retry only changes the status when the generation it read before sending is still the current one. Updates from the proxy, retries and retention share a directory lock. The proxy deletes recordings, log rows and log files after 7 days.
 - Git ignores `.env`, `vocabulary.txt`, `data/` and your shootout recordings.
 
 ## Project layout

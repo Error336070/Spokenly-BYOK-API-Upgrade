@@ -30,12 +30,13 @@ def _error_text(response: httpx.Response) -> str:
         return response.text[:300] or response.reason_phrase
 
 
-def _record_result(path, error):
+def _record_result(path, error, generation):
     try:
-        failed.record_retry(path, error)
+        return failed.record_retry(path, error, started_generation=generation)
     except (OSError, ValueError) as exc:
         # A metadata failure must not discard a successfully recovered transcript.
         print(f"warning: could not update recovery state for {path.name}: {exc}", file=sys.stderr)
+        return None
 
 
 def retry_clip(path, cfg, client):
@@ -49,16 +50,17 @@ def retry_clip(path, cfg, client):
         audio = path.read_bytes()
     except OSError as e:
         raise RetryError(f"cannot read {path.name}: {e.strerror or e}") from e
+    generation = metadata.get("generation", 0)
     try:
         response = client.post("/v1/audio/transcriptions",
                                data={"model": metadata["route"], "language": metadata.get("language") or ""},
                                files={"file": (path.name, audio)})
     except httpx.HTTPError as e:
-        _record_result(path, type(e).__name__)
+        _record_result(path, type(e).__name__, generation)
         raise RetryError(f"could not reach the proxy ({type(e).__name__}); is it running? "
                          f"Check with scripts\\proxyctl.ps1 status") from e
     if response.status_code != 200:
-        _record_result(path, f"HTTP {response.status_code}")
+        _record_result(path, f"HTTP {response.status_code}", generation)
         raise RetryError(f"route '{metadata['route']}' failed again: HTTP {response.status_code}: "
                          f"{_error_text(response)}")
     try:
@@ -66,12 +68,15 @@ def retry_clip(path, cfg, client):
         if not isinstance(text, str):
             raise ValueError("transcript is not text")
     except (ValueError, KeyError, TypeError) as e:
-        _record_result(path, "unreadable response")
+        _record_result(path, "unreadable response", generation)
         raise RetryError("the proxy returned an unreadable response") from e
     if not text.strip():
-        _record_result(path, "empty transcript")
+        _record_result(path, "empty transcript", generation)
         raise RetryError(f"route '{metadata['route']}' returned an empty transcript again; the clip stays pending")
-    _record_result(path, None)
+    recorded = _record_result(path, None, generation)
+    if recorded is not None and recorded.get("status") != "recovered":
+        print(f"warning: a newer failure of {path.name} arrived during this retry, so it stays pending",
+              file=sys.stderr)
     return text
 
 

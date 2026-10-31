@@ -1,6 +1,9 @@
 """Failed-request clips in logging.failed_clips_dir, each with a JSON sidecar of route metadata and state.
 
 The sidecar's status is "pending" until scripts/retry.py gets a nonempty transcript, then "recovered".
+Every saved failure increases the sidecar's "generation". A retry records the generation it read before sending,
+and its result only changes the status if no newer failure has arrived since, so a slow successful retry cannot
+hide a failure that happened while it was in flight. Sidecars written before this field count as generation 0.
 A clip whose bytes, route and language match one already saved reuses that file, so failed retries don't
 pile up copies or inherit a different route. No client-supplied path determines the saved file.
 """
@@ -67,7 +70,7 @@ def _read_sidecar(path: Path) -> dict | None:
         return None
     if data.get("language") is not None and not isinstance(data["language"], str):
         return None
-    for key in ("failures", "retries"):
+    for key in ("failures", "retries", "generation"):
         if key in data and (type(data[key]) is not int or data[key] < 0):
             return None
     return data
@@ -96,21 +99,26 @@ def update_sidecar(path: Path, **changes) -> dict:
         return metadata
 
 
-def record_retry(path: Path, error: str | None) -> dict:
-    """Count a completed attempt and apply its outcome to the latest record, under the same process lock."""
+def record_retry(path: Path, error: str | None, *, started_generation: int) -> dict:
+    """Count a completed attempt and apply its outcome if it still describes the latest failure.
+
+    started_generation is the sidecar's generation when the attempt read it. If a newer failure was saved since,
+    the result is stale: it is counted, but it neither recovers the clip nor records its error. A failed attempt
+    also does not reopen a generation that another retry has already recovered.
+    """
     now = datetime.now().isoformat(timespec="seconds")
     with directory_lock(path.parent):
         metadata = _read_sidecar(path)
         if metadata is None:
             raise ValueError("the clip metadata is missing or unreadable")
-        metadata.update(retries=metadata.get("retries", 0) + 1, last_retry_at=now,
-                        status="pending" if error else "recovered")
-        if error:
-            metadata["last_retry_error"] = error
-            metadata.pop("recovered_at", None)
-        else:
-            metadata["recovered_at"] = now
+        metadata.update(retries=metadata.get("retries", 0) + 1, last_retry_at=now)
+        current = metadata.get("generation", 0) == started_generation
+        if current and error is None:
+            metadata.update(status="recovered", recovered_at=now)
             metadata.pop("last_retry_error", None)
+        elif current and metadata.get("status") != "recovered":
+            metadata.update(status="pending", last_retry_error=error)
+            metadata.pop("recovered_at", None)
         os.utime(path)
         _write_sidecar(path, metadata)
         return metadata
@@ -141,12 +149,14 @@ def save(directory: Path, audio: bytes, fmt: str, metadata: dict) -> Path:
         existing = _same_content(directory, audio, fmt, metadata)
         if existing is not None:
             old = _read_sidecar(existing)
-            old.update(status="pending", failures=old.get("failures", 1) + 1, last_failed_at=now)
+            old.update(status="pending", failures=old.get("failures", 1) + 1, last_failed_at=now,
+                       generation=old.get("generation", 0) + 1)
             old.pop("recovered_at", None)
             _write_sidecar(existing, old)
             os.utime(existing)
             return existing
         path = directory / f"{datetime.now():%Y%m%d-%H%M%S}-{uuid.uuid4().hex[:6]}.{fmt}"
         _write_atomic(path, audio)
-        _write_sidecar(path, {**metadata, "status": "pending", "failures": 1, "saved_at": now})
+        _write_sidecar(path, {**metadata, "status": "pending", "failures": 1, "generation": 1,
+                                  "saved_at": now})
         return path
