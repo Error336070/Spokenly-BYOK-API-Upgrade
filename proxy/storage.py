@@ -34,36 +34,57 @@ _COLUMNS = [
 
 
 class RequestLog:
+    """One shared connection. Every call holds the lock, so close() waits for a running call to finish."""
+
     def __init__(self, db_path: str):
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
-        self._conn = sqlite3.connect(db_path, check_same_thread=False)
-        self._conn.execute("PRAGMA journal_mode=WAL")
-        self._conn.execute("PRAGMA synchronous=NORMAL")
-        cols = ", ".join(f"{n} {t}" for n, t in _COLUMNS)
-        self._conn.execute(f"CREATE TABLE IF NOT EXISTS requests (id INTEGER PRIMARY KEY AUTOINCREMENT, {cols})")
-        existing = {r[1] for r in self._conn.execute("PRAGMA table_info(requests)")}
-        for name, typ in _COLUMNS:
-            if name not in existing:
-                self._conn.execute(f"ALTER TABLE requests ADD COLUMN {name} {typ.replace(' NOT NULL', '')}")
-        self._conn.commit()
         self._lock = threading.Lock()
+        self._conn = sqlite3.connect(db_path, check_same_thread=False)
+        try:
+            self._conn.execute("PRAGMA journal_mode=WAL")
+            self._conn.execute("PRAGMA synchronous=NORMAL")
+            cols = ", ".join(f"{n} {t}" for n, t in _COLUMNS)
+            self._conn.execute(f"CREATE TABLE IF NOT EXISTS requests (id INTEGER PRIMARY KEY AUTOINCREMENT, {cols})")
+            existing = {r[1] for r in self._conn.execute("PRAGMA table_info(requests)")}
+            for name, typ in _COLUMNS:
+                if name not in existing:
+                    self._conn.execute(f"ALTER TABLE requests ADD COLUMN {name} {typ.replace(' NOT NULL', '')}")
+            self._conn.commit()
+        except BaseException:
+            self._conn.close()
+            raise
+
+    def _db(self) -> sqlite3.Connection:
+        if self._conn is None:
+            raise sqlite3.ProgrammingError("the request log is closed")
+        return self._conn
+
+    def close(self) -> None:
+        """Close the connection once; later calls raise sqlite3.ProgrammingError."""
+        with self._lock:
+            if self._conn is not None:
+                self._conn.close()
+                self._conn = None
 
     def insert(self, row: dict) -> int:
         cols = ", ".join(row)
         marks = ", ".join("?" for _ in row)
         with self._lock:
-            cur = self._conn.execute(f"INSERT INTO requests ({cols}) VALUES ({marks})", list(row.values()))
-            self._conn.commit()
+            conn = self._db()
+            cur = conn.execute(f"INSERT INTO requests ({cols}) VALUES ({marks})", list(row.values()))
+            conn.commit()
             return cur.lastrowid
 
     def delete_before(self, ts: str) -> int:
         with self._lock:
-            n = self._conn.execute("DELETE FROM requests WHERE ts < ?", (ts,)).rowcount
-            self._conn.commit()
+            conn = self._db()
+            n = conn.execute("DELETE FROM requests WHERE ts < ?", (ts,)).rowcount
+            conn.commit()
             return n
 
     def update(self, row_id: int, **values) -> None:
         sets = ", ".join(f"{k} = ?" for k in values)
         with self._lock:
-            self._conn.execute(f"UPDATE requests SET {sets} WHERE id = ?", [*values.values(), row_id])
-            self._conn.commit()
+            conn = self._db()
+            conn.execute(f"UPDATE requests SET {sets} WHERE id = ?", [*values.values(), row_id])
+            conn.commit()

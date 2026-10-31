@@ -9,6 +9,7 @@
 Usage: .venv\\Scripts\\python.exe scripts\\vocab.py <command> ...
 """
 import argparse
+import contextlib
 import re
 import sqlite3
 import sys
@@ -31,8 +32,8 @@ September October November December English""".split())
 
 
 def transcripts() -> list[str]:
-    db = sqlite3.connect(load_config()["logging"]["db_path"])
-    return [r[0] for r in db.execute("SELECT transcript FROM requests WHERE status='ok' AND transcript != ''")]
+    with contextlib.closing(sqlite3.connect(load_config()["logging"]["db_path"])) as db:
+        return [r[0] for r in db.execute("SELECT transcript FROM requests WHERE status='ok' AND transcript != ''")]
 
 
 def flat(s: str) -> str:

@@ -11,6 +11,7 @@ Usage: .venv\\Scripts\\python.exe scripts\\shootout.py <command> ...
 """
 import argparse
 import asyncio
+import contextlib
 import csv
 import shutil
 import sqlite3
@@ -47,9 +48,9 @@ def cmd_sheet(args):
 def cmd_import(args):
     scripts = load_scripts()
     ids = args.ids or list(scripts)
-    db = sqlite3.connect(load_config()["logging"]["db_path"])
-    rows = db.execute("SELECT clip_path, transcript FROM requests WHERE status = 'ok' AND clip_path IS NOT NULL "
-                      "ORDER BY id DESC LIMIT ? OFFSET ?", (len(ids), args.skip)).fetchall()[::-1]
+    with contextlib.closing(sqlite3.connect(load_config()["logging"]["db_path"])) as db:
+        rows = db.execute("SELECT clip_path, transcript FROM requests WHERE status = 'ok' AND clip_path IS NOT NULL "
+                          "ORDER BY id DESC LIMIT ? OFFSET ?", (len(ids), args.skip)).fetchall()[::-1]
     if len(rows) < len(ids):
         sys.exit(f"need {len(ids)} saved clips, found {len(rows)}")
     CLIPS.mkdir(parents=True, exist_ok=True)

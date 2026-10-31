@@ -3,6 +3,7 @@
 Usage: .venv\\Scripts\\python.exe scripts\\stats.py [--since 2026-10-29] [--errors N]
 """
 import argparse
+import contextlib
 import sqlite3
 import statistics
 import sys
@@ -54,9 +55,9 @@ def main():
     args = ap.parse_args()
 
     cfg = load_config()
-    db = sqlite3.connect(cfg["logging"]["db_path"])
-    db.row_factory = sqlite3.Row
-    rows = db.execute("SELECT * FROM requests WHERE ts >= ? ORDER BY id", (args.since,)).fetchall()
+    with contextlib.closing(sqlite3.connect(cfg["logging"]["db_path"])) as db:
+        db.row_factory = sqlite3.Row
+        rows = db.execute("SELECT * FROM requests WHERE ts >= ? ORDER BY id", (args.since,)).fetchall()
     if not rows:
         print("no requests logged")
         return

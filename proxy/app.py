@@ -59,9 +59,19 @@ def create_app(cfg: dict, backends: dict | None = None, config_path: Path | None
                 background_failure(task.get_coro().cr_code.co_name, task.exception())
         task.add_done_callback(done)
 
+    db_ops: set[asyncio.Task] = set()
+
+    async def db_call(method, *args, **kwargs):
+        """Run a database call in a thread. Shielded, so shutdown can wait for it before closing the log."""
+        op = asyncio.ensure_future(asyncio.to_thread(method, *args, **kwargs))
+        db_ops.add(op)
+        op.add_done_callback(db_ops.discard)
+        op.add_done_callback(lambda t: t.cancelled() or t.exception())  # retrieved even if nobody awaits
+        return await asyncio.shield(op)
+
     async def db_write(method, *args, **kwargs):
         try:
-            return await asyncio.to_thread(method, *args, **kwargs)
+            return await db_call(method, *args, **kwargs)
         except Exception:
             log.exception("request-log write failed")
             return None
@@ -145,7 +155,7 @@ def create_app(cfg: dict, backends: dict | None = None, config_path: Path | None
     async def periodic_cleanup():
         while True:
             try:
-                await asyncio.to_thread(cleanup, cfg, app.state.db)
+                await db_call(cleanup, cfg, app.state.db)
             except Exception as e:
                 background_failure("periodic_cleanup", e)
             await asyncio.sleep(6 * 3600)
@@ -185,6 +195,9 @@ def create_app(cfg: dict, backends: dict | None = None, config_path: Path | None
         for t in pending:
             t.cancel()
         await asyncio.gather(*pending, return_exceptions=True)
+        # A cancelled task's thread keeps running; let it finish before the connection goes away.
+        await asyncio.gather(*list(db_ops), return_exceptions=True)
+        await asyncio.to_thread(app.state.db.close)
         for b in app.state.backends.values():
             await b.aclose()
 
