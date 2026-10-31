@@ -13,6 +13,12 @@ from .translate import build_native_payload, build_openrouter_options
 ROOT = Path(__file__).resolve().parent.parent
 
 
+def local_server_url(host: str, port: int) -> str:
+    """Build an HTTP URL for a validated loopback server address."""
+    url_host = f"[{host}]" if ":" in host else host
+    return f"http://{url_host}:{port}"
+
+
 def load_config(path: Path | None = None) -> dict:
     load_dotenv(ROOT / ".env")
     path = path or Path(os.environ.get("PROXY_CONFIG", ROOT / "config.yaml"))

@@ -272,7 +272,7 @@ Restart the proxy after you change `.env` or the code. The proxy writes its log 
 
 `http://127.0.0.1:8765/health` reports two things. `status` is `ok` while the process and its background tasks run, and `degraded` when one of those tasks has stopped. `route_readiness` lists each route with `ready: false` and the missing variable's name when its active backend started without a key. A missing key doesn't change `status`, so the watchdog doesn't restart the proxy over it. The proxy also logs a warning for each such route at startup and after each config reload. Provider clients keep their startup credentials, so restart the proxy after you add a key.
 
-`proxyctl.ps1 start` and `restart` wait up to 20 seconds for `/health` to answer instead of a fixed pause. `status` exits with code 0 when the proxy is up, 1 when it doesn't answer and 2 when it answers but a background task has stopped. It also lists routes that aren't ready. If the proxy fails to start, for example because of an invalid `config.yaml`, the error goes to `data\proxy.log` and `proxyctl.ps1` exits with code 1.
+`proxyctl.ps1 start` and `restart` wait up to 20 seconds for `/health` to answer instead of a fixed pause. `status` exits with code 0 when the proxy is up, 1 when it doesn't answer and 2 when it answers but a background task has stopped. It also lists routes that aren't ready. Pass `-Address ::1` and the configured `-Port` when the server uses a nondefault loopback address or port. If the proxy fails to start, for example because of an invalid `config.yaml`, the error goes to `data\proxy.log` and `proxyctl.ps1` exits with code 1.
 
 `install-autostart.ps1 -Watchdog` also registers a second task that calls `/health` every 5 minutes. It only looks at `status`, so a route without a key never triggers a restart. If the proxy task isn't running, the watchdog starts it and waits up to 60 seconds for `/health`. If the task is running but the proxy doesn't answer or reports `degraded`, the watchdog waits for 3 failed checks in a row, which is 15 minutes, then ends and starts the task. It restarts at most once every 30 minutes and shows at most one notification an hour. It keeps its counters in `data\watchdog.json` and logs to `data\watchdog.log`. `uninstall-autostart.ps1` removes both tasks.
 
@@ -301,7 +301,7 @@ When a request fails, Spokenly shows the proxy's error. The proxy never retries 
 
 ## Privacy
 
-- The proxy listens on `127.0.0.1` and refuses to start on any other address. It rejects requests from web pages, so a site open in your browser can't spend your credits through it.
+- The proxy listens only on a configured loopback address and refuses to start on any other address. It rejects requests from web pages, so a site open in your browser can't spend your credits through it.
 - API keys stay in `.env`. The log redacts `Authorization` headers.
 - The proxy saves audio only when `save_audio` is on, when a request fails, or when a clip over 2 seconds comes back empty. Failed clips go to `data/failed` so `retry.py` can send them again. If the same audio fails again on the same route and language, the proxy reuses the saved file and marks it pending again. Each such failure raises a generation number in the `.json` file, and a retry only changes the status when the generation it read before sending is still the current one. Updates from the proxy, retries and retention share a directory lock. The proxy deletes recordings, log rows and log files after 7 days.
 - Git ignores `.env`, `vocabulary.txt`, `data/` and your shootout recordings.

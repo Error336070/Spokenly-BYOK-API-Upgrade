@@ -17,7 +17,7 @@ class World:
         monkeypatch.setattr(watchdog, "schtasks", self.schtasks)
         monkeypatch.setattr(subprocess, "run", lambda *a, **kw: pytest.fail("real command"))
 
-    def health(self, port):
+    def health(self, port, host="127.0.0.1"):
         return self.health_seq.pop(0) if len(self.health_seq) > 1 else self.health_seq[0]
 
     def schtasks(self, action, task):
@@ -119,12 +119,17 @@ def test_health_ignores_route_readiness(monkeypatch):
 
     body = {"status": "ok", "route_readiness": {"assembly": {"ready": False, "problem": "x"}}}
 
+    opened = []
+
     class Opener:
         def open(self, url, timeout):
+            opened.append(url)
             return Response(json.dumps(body).encode())
 
     monkeypatch.setattr(watchdog, "build_opener", lambda *a: Opener())
     assert watchdog.health(8765) == "ok"
+    assert watchdog.health(8765, "::1") == "ok"
+    assert opened[-1] == "http://[::1]:8765/health"
     body["status"] = "degraded"
     assert watchdog.health(8765) == "degraded"
 
@@ -149,13 +154,14 @@ def test_main_keeps_state_and_skips_bad_config(monkeypatch, tmp_path):
     import logging
     monkeypatch.setattr(watchdog, "ROOT", tmp_path)
     monkeypatch.setattr(logging, "basicConfig", lambda **kw: None)
-    monkeypatch.setattr(watchdog, "load_config", lambda path: {"server": {"port": 8765}})
+    monkeypatch.setattr(watchdog, "load_config", lambda path: {"server": {"host": "::1", "port": 8765}})
     seen = []
-    monkeypatch.setattr(watchdog, "check_once", lambda port, task, state, now: (
-        seen.append((port, task, dict(state))), state.update(unhealthy_checks=1))[0] and "waiting")
+    monkeypatch.setattr(watchdog, "check_once", lambda port, task, state, now, host: (
+        seen.append((host, port, task, dict(state))), state.update(unhealthy_checks=1))[0] and "waiting")
     assert watchdog.main(["--task", "Zyntrabox"]) == 0
     assert watchdog.main(["--task", "Zyntrabox"]) == 0
-    assert seen == [(8765, "Zyntrabox", {}), (8765, "Zyntrabox", {"unhealthy_checks": 1})]
+    assert seen == [("::1", 8765, "Zyntrabox", {}),
+                    ("::1", 8765, "Zyntrabox", {"unhealthy_checks": 1})]
 
     def broken(path):
         raise ValueError("Zyntrabox")

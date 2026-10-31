@@ -323,6 +323,10 @@ def create_app(cfg: dict, backends: dict | None = None, config_path: Path | None
         upload_read_ms = _ms(t0)
         state["last_request"] = time.monotonic()
 
+        retry_attempt = fields.pop("_dictation_proxy_retry", "").lower()
+        if len(retry_attempt) != 32 or any(char not in "0123456789abcdef" for char in retry_attempt):
+            retry_attempt = None
+
         requested = str(fields.get("model") or "")
         route_name = requested if requested in settings["routes"] else settings["default_route"]
         route = settings["routes"][route_name]
@@ -368,6 +372,8 @@ def create_app(cfg: dict, backends: dict | None = None, config_path: Path | None
 
         backend = app.state.backends.get(route["backend"])
         failed_metadata = {"route": route_name, "language": language}
+        if retry_attempt is not None:
+            failed_metadata["retry_attempt"] = retry_attempt
         try:
             t_enc = time.perf_counter()
             send_audio, send_fmt = await asyncio.to_thread(prepare_upload, audio, fmt, settings)
