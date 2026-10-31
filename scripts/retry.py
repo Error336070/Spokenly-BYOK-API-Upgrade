@@ -123,6 +123,7 @@ def main(argv=None):
         return 1
     try:
         with httpx.Client(base_url=local_server_url(cfg["server"]["host"], cfg["server"]["port"]), timeout=None,
+                          trust_env=False,
                           headers={"Authorization": f"Bearer {env('PROXY_API_KEY')}"}) as client:
             text = retry_clip(path, cfg, client)
     except RetryError as e:

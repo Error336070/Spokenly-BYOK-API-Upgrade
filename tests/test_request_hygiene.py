@@ -68,14 +68,13 @@ def test_form_closed_when_file_field_is_missing(cfg, monkeypatch):  # noqa: F811
     {"seconds": "3"}, {"seconds": True}, {"seconds": -1}, {"seconds": float("nan")},
     {"cost": "0.01"}, {"cost": float("inf")}, "Zyntrabox", [],
 ])
-def test_parse_openrouter_rejects_malformed_usage(usage):
-    with pytest.raises(ValueError):
-        parse_openrouter_response({"text": "hi", "usage": usage})
+def test_parse_openrouter_ignores_malformed_usage(usage):
+    out = parse_openrouter_response({"text": "hi", "usage": usage})
+    assert out == {"text": "hi", "cost": None, "seconds": None, "language": None}
 
 
-def test_parse_openrouter_rejects_malformed_language():
-    with pytest.raises(ValueError):
-        parse_openrouter_response({"text": "hi", "language": 7})
+def test_parse_openrouter_ignores_malformed_language():
+    assert parse_openrouter_response({"text": "hi", "language": 7})["language"] is None
 
 
 def test_parse_openrouter_accepts_valid_optional_fields():
@@ -85,20 +84,33 @@ def test_parse_openrouter_accepts_valid_optional_fields():
     assert parse_openrouter_response({"text": "hi", "usage": None})["seconds"] is None
 
 
-def test_malformed_usage_seconds_returns_502_and_keeps_clip(cfg):  # noqa: F811
+@pytest.mark.parametrize("text,known_duration", [("Zyntrabox works", False), ("", False), ("", True)])
+def test_malformed_metadata_preserves_transcript_and_logging(cfg, text, known_duration):  # noqa: F811
     cfg["logging"]["save_audio"] = False
     cfg["notifications"]["enabled"] = False
     backend = OpenRouterBackend(cfg, "k", transport=httpx.MockTransport(
-        lambda r: httpx.Response(200, json={"text": "", "usage": {"seconds": "3"}})))
-    audio = b"Zyntrabox not a known audio format" * 10
+        lambda r: httpx.Response(200, json={"text": text, "usage": {"seconds": "3", "cost": "0.01"},
+                                          "language": 7})))
+    audio = make_wav(3) if known_duration else b"Zyntrabox not a known audio format" * 10
     with TestClient(create_app(cfg, backends={"openrouter": backend}),
                     base_url="http://127.0.0.1:18765") as c:
         r = c.post("/v1/audio/transcriptions", data={"model": "gpt"}, files={"file": ("x.bin", audio)})
-        assert r.status_code == 502
-        assert r.json()["error"]["type"] == "upstream_error"
-        rows = c.app.state.db._conn.execute("SELECT status, http_status, clip_path FROM requests").fetchall()
-        assert len(rows) == 1 and rows[0][:2] == ("error", 502)
-        assert Path(rows[0][2]).read_bytes() == audio
+        assert r.status_code == 200
+        assert r.json() == {"text": text}
+        rows = c.app.state.db._conn.execute(
+            "SELECT status, http_status, clip_path, cost, audio_duration_s FROM requests").fetchall()
+        assert len(rows) == 1 and rows[0][:2] == ("ok", 200)
+        assert rows[0][3:] == (None, 3.0 if known_duration else None)
+        if known_duration:
+            assert Path(rows[0][2]).read_bytes() == audio
+        else:
+            assert rows[0][2] is None
+
+
+@pytest.mark.parametrize("payload", [{}, {"text": 7}, {"text": "ok", "error": "failed"}])
+def test_bad_required_transcript_remains_an_error(payload):
+    with pytest.raises(ValueError):
+        parse_openrouter_response(payload)
 
 
 def _client(cfg, port):  # noqa: F811

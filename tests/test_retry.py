@@ -198,3 +198,23 @@ def test_cli_uses_the_configured_ipv6_host(cfg, tmp_path, monkeypatch, capsys): 
     assert retry.main([]) == 0
     assert capsys.readouterr().out.strip() == "Zyntrabox"
     assert seen["base_url"] == "http://[::1]:18765"
+
+
+def test_cli_ipv6_bypasses_environment_proxy(cfg, tmp_path, monkeypatch, capsys):  # noqa: F811
+    cfg["server"].update(host="::1", port=18765)
+    cfg["logging"]["failed_clips_dir"] = str(tmp_path / "failed")
+    monkeypatch.setattr(retry, "load_config", lambda: cfg)
+    monkeypatch.setenv("HTTP_PROXY", "http://proxy.example.invalid:8080")
+    monkeypatch.setenv("NO_PROXY", "localhost,127.0.0.1")
+    path = saved_clip(tmp_path)
+    connections = []
+
+    def handle(transport, request):
+        # Inspect httpx's actual transport selection, without opening a socket.
+        connections.append(type(transport._pool).__name__)
+        return httpx.Response(200, json={"text": "Zyntrabox"})
+
+    monkeypatch.setattr(httpx.HTTPTransport, "handle_request", handle)
+    assert retry.main([str(path)]) == 0
+    assert capsys.readouterr().out.strip() == "Zyntrabox"
+    assert connections == ["ConnectionPool"]

@@ -92,27 +92,23 @@ def parse_azure_response(data: dict) -> dict:
     return {"text": text.strip(), "seconds": ms / 1000 if ms else None, "language": None}
 
 
-def _checked(value, kind, name):
-    """None stays None. Anything else must be the right type, so the proxy never compares or stores junk."""
-    if value is None:
+def _optional_nonnegative_number(value):
+    """Invalid optional diagnostics must not discard a valid transcript."""
+    value = _optional(value, (int, float))
+    try:
+        return value if value is not None and math.isfinite(value) and value >= 0 else None
+    except OverflowError:
         return None
-    if kind is float:
-        if (isinstance(value, bool) or not isinstance(value, (int, float))
-                or not math.isfinite(value) or value < 0):
-            raise ValueError(f"{name} must be a non-negative number")
-    elif not isinstance(value, kind):
-        raise ValueError(f"{name} must be a {kind.__name__}")
-    return value
 
 
 def parse_openrouter_response(data: dict) -> dict:
     text = _transcript_field(data, "text", str)
-    usage = _checked(data.get("usage"), dict, "usage") or {}
+    usage = _optional(data.get("usage"), dict) or {}
     return {
         "text": text.strip(),
-        "cost": _checked(usage.get("cost"), float, "usage.cost"),
-        "seconds": _checked(usage.get("seconds"), float, "usage.seconds"),
-        "language": _checked(data.get("language"), str, "language"),
+        "cost": _optional_nonnegative_number(usage.get("cost")),
+        "seconds": _optional_nonnegative_number(usage.get("seconds")),
+        "language": _optional(data.get("language"), str),
     }
 
 
