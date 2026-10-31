@@ -10,6 +10,7 @@ Usage: .venv\\Scripts\\python.exe scripts\\vocab.py <command> ...
 """
 import argparse
 import contextlib
+import os
 import re
 import sqlite3
 import sys
@@ -24,7 +25,12 @@ from proxy.config import ROOT, load_config, read_vocabulary, vocabulary_file  # 
 
 from proxy.translate import trim_vocab
 
-CONFIG = ROOT / "config.yaml"
+
+def config_path() -> Path:
+    """The config the proxy uses: PROXY_CONFIG when set, else config.yaml."""
+    return Path(os.environ.get("PROXY_CONFIG", ROOT / "config.yaml"))
+
+
 # capitalised words that are normal English, not vocabulary candidates
 COMMON = set("""I I'm I've I'll I'd OK Okay Yeah Yes No Hey Hi So And But Or If Then Also Just Now Well Alright
 Monday Tuesday Wednesday Thursday Friday Saturday Sunday January February March April May June July August
@@ -58,11 +64,73 @@ def cmd_usage(args):
     print(f"{len(texts)} logged dictations\n")
     for term in sorted(vocab, key=lambda v: -sum(flat(v) in t for t in texts)):
         n = sum(flat(term) in t for t in texts)
-        omitted = [name for name, route in cfg.get("routes", {}).items()
-                   if (block := route[route["backend"]]).get("vocab_path")
-                   and term.lower() not in {v.lower() for v in trim_vocab(vocab, block.get("vocab_max"))}]
-        suffix = "".join(f"   beyond {name} vocab_max" for name in omitted)
+        suffix = "".join(f"   beyond {name} vocab_max" for name, _ in omitted_by(term, cfg))
         print(f"  {n:4}  {term}{suffix}{'   <- never said' if n == 0 else ''}")
+
+
+def omitted_by(term, cfg):
+    """(route, vocab_max) for each route whose active backend sends vocabulary but trims this term off."""
+    vocab = cfg.get("vocabulary") or []
+    out = []
+    for name, route in cfg.get("routes", {}).items():
+        block = route[route["backend"]]
+        if block.get("vocab_path") and term.lower() not in {
+                v.lower() for v in trim_vocab(vocab, block.get("vocab_max"))}:
+            out.append((name, block.get("vocab_max")))
+    return out
+
+
+FUZZY_CUTOFF = 0.8
+
+
+def fuzzy_variants(texts, vocabulary):
+    """term -> Counter of the closest near-miss surface per dictation, at a ratio of at least FUZZY_CUTOFF.
+
+    Same result as scoring every word window with SequenceMatcher(None, canonical, key).ratio() and taking
+    the max by (ratio, -len(surface), surface). The ratio is order dependent, so the argument order stays.
+    Faster: patterns are compiled once, a dictation's windows are reused when the term doesn't occur in it,
+    ratios are cached per (canonical, key), and a pair whose length or character-count bound is below the
+    cutoff is skipped. Such a pair can never be the max of a group that reaches the cutoff.
+    """
+    terms = []
+    for term in vocabulary:
+        canonical = re.sub(r"[\s\-]", "", term.lower())
+        pattern = r"(?<!\w)" + r"[\s-]+".join(re.escape(w) for w in flat(term).split()) + r"(?!\w)"
+        terms.append((term, canonical, re.compile(pattern, re.IGNORECASE)))
+    ratios = {}
+
+    def ratio(canonical, key):
+        """The ratio when it reaches the cutoff, else None."""
+        pair = (canonical, key)
+        if pair not in ratios:
+            la, lb = len(canonical), len(key)
+            value = None
+            if 2.0 * min(la, lb) / (la + lb) >= FUZZY_CUTOFF:  # SequenceMatcher.real_quick_ratio()
+                matcher = SequenceMatcher(None, canonical, key)
+                if matcher.quick_ratio() >= FUZZY_CUTOFF:
+                    value = matcher.ratio()
+            ratios[pair] = value if value is not None and value >= FUZZY_CUTOFF else None
+        return ratios[pair]
+
+    fuzzy = defaultdict(Counter)
+    for t in texts:
+        groups = None
+        for term, canonical, pattern in terms:
+            # Remove the complete occurrence before forming windows, including any partial windows.
+            remaining, found = pattern.subn(". ", t)
+            if found:
+                candidates = word_groups(remaining)
+            else:
+                groups = word_groups(t) if groups is None else groups
+                candidates = groups
+            best = None
+            for key, surface in candidates:
+                score = ratio(canonical, key)
+                if score is not None and (best is None or (score, -len(surface), surface) > best):
+                    best = (score, -len(surface), surface)
+            if best is not None:
+                fuzzy[term][best[2]] += 1
+    return fuzzy
 
 
 def cmd_suggest(args):
@@ -71,7 +139,6 @@ def cmd_suggest(args):
     vocab_keys = {re.sub(r"[\s\-]", "", v.lower()) for v in vocabulary}
     names = Counter()
     forms = defaultdict(Counter)
-    fuzzy = defaultdict(Counter)
     for t in texts:
         dictation_names, dictation_forms = set(), set()
         for sent in re.split(r"(?<=[.!?])\s+", t):
@@ -84,17 +151,7 @@ def cmd_suggest(args):
         names.update(dictation_names)
         for key, surface in dictation_forms:
             forms[key][surface] += 1
-        for term in vocabulary:
-            canonical = re.sub(r"[\s\-]", "", term.lower())
-            pattern = r"(?<!\w)" + r"[\s-]+".join(re.escape(w) for w in flat(term).split()) + r"(?!\w)"
-            # Remove the complete occurrence before forming windows, including any partial windows.
-            remaining = re.sub(pattern, ". ", t, flags=re.IGNORECASE)
-            matches = [(SequenceMatcher(None, canonical, key).ratio(), surface)
-                       for key, surface in word_groups(remaining)]
-            if matches:
-                score, surface = max(matches, key=lambda pair: (pair[0], -len(pair[1]), pair[1]))
-                if score >= 0.8:
-                    fuzzy[term][surface] += 1
+    fuzzy = fuzzy_variants(texts, vocabulary)
 
     print("Possible names/brands (not yet in vocabulary):")
     shown = [(w, c) for w, c in names.most_common() if c >= args.min and re.sub(r"[\s\-]", "", w.lower()) not in vocab_keys]
@@ -122,19 +179,33 @@ def cmd_suggest(args):
 
 
 def _vocab_path() -> Path:
-    path = vocabulary_file(yaml.safe_load(CONFIG.read_text(encoding="utf-8")) or {})
+    config = config_path()
+    path = vocabulary_file(yaml.safe_load(config.read_text(encoding="utf-8")) or {})
     if path is None:
-        sys.exit("config.yaml has no vocabulary_file; set e.g. `vocabulary_file: vocabulary.txt`")
+        sys.exit(f"{config.name} has no vocabulary_file; set e.g. `vocabulary_file: vocabulary.txt`")
     return path
 
 
 def cmd_add(args):
     path = _vocab_path()
     lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
-    existing = {t.lower() for t in read_vocabulary(path)}
-    new = [t.strip() for t in args.terms if t.strip() and t.strip().lower() not in existing]
+    seen = {t.lower() for t in read_vocabulary(path)}
+    new = []
+    for term in (t.strip() for t in args.terms):
+        if term and term.lower() not in seen:
+            seen.add(term.lower())
+            new.append(term)
     path.write_text("\n".join(lines + new) + "\n", encoding="utf-8")
     print(f"added to {path.name}: {', '.join(new) or '(nothing new)'}")
+    try:
+        cfg = load_config()
+    except (OSError, ValueError) as e:
+        print(f"warning: could not check route vocabulary limits: {e}")
+        return
+    for term in new:
+        for name, limit in omitted_by(term, cfg):
+            print(f"warning: {term} is not sent on route {name}, which uses its first {limit} terms "
+                  f"(vocab_max). Raise vocab_max or remove unused terms (see: vocab.py usage).")
 
 
 def cmd_remove(args):

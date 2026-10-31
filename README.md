@@ -237,7 +237,7 @@ Run each one with `.\.venv\Scripts\python.exe scripts\<name>.py`.
 | `retry.py [clip]` | sends the newest pending failed clip, or the one you name, through the proxy on its original route and prints the text. `--copy` also puts it on the clipboard. `--list` shows the pending clips. A nonempty transcript marks the clip recovered in its `.json` file, and the audio stays until retention deletes it. A failed or empty retry leaves it pending, prints the reason and exits with code 1. |
 | `vocab.py usage` | how often you say each term, and which terms are past a route's `vocab_max` |
 | `vocab.py suggest --min 2` | likely names, spelling variants, and phrases close to a vocabulary term but not exact, ranked by how many dictations contain them |
-| `vocab.py add "Term"` | adds a term to `vocabulary.txt` |
+| `vocab.py add "Term"` | adds a term to `vocabulary.txt`, and warns when a route's `vocab_max` leaves the new term out. It uses the config named by `PROXY_CONFIG` when that is set. |
 | `shootout.py sheet` | prints the scripts to read aloud |
 | `shootout.py import` | labels your latest recordings as shootout clips |
 | `shootout.py run` | sends the clips through every route and scores the results |
