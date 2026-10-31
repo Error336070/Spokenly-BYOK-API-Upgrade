@@ -1,45 +1,121 @@
-"""Resend a failed clip on its saved route. No automatic route fallback."""
+"""Resend a failed clip on its saved route. No automatic route fallback.
+
+  retry.py              retry the newest pending clip in logging.failed_clips_dir
+  retry.py CLIP         retry that clip
+  retry.py --list       show pending clips (recovered ones are counted, not listed)
+
+A nonempty transcript marks the clip recovered in its .json sidecar. The audio stays until retention deletes it.
+"""
 import argparse
-import json
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import httpx
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from proxy import failed  # noqa: E402
 from proxy.config import env, load_config  # noqa: E402
 
 
+class RetryError(ValueError):
+    """A readable reason the retry did not recover the clip."""
+
+
+def _error_text(response: httpx.Response) -> str:
+    try:
+        return str(response.json()["error"]["message"])
+    except (ValueError, KeyError, TypeError):
+        return response.text[:300] or response.reason_phrase
+
+
 def retry_clip(path, cfg, client):
-    metadata = json.loads(path.with_suffix(path.suffix + ".json").read_text(encoding="utf-8"))
+    """Send the clip on its saved route and return the text. Updates the sidecar's state."""
+    metadata = failed.read_sidecar(path)
+    if metadata is None:
+        raise RetryError(f"{path.name} has no readable .json metadata, so its route is unknown")
     if metadata["route"] not in cfg["routes"]:
-        raise ValueError("saved route no longer exists")
-    response = client.post("/v1/audio/transcriptions",
-                           data={"model": metadata["route"], "language": metadata.get("language") or ""},
-                           files={"file": (path.name, path.read_bytes())})
-    response.raise_for_status()
-    return response.json()["text"]
+        raise RetryError(f"saved route '{metadata['route']}' no longer exists in the config; not retrying on another route")
+    try:
+        audio = path.read_bytes()
+    except OSError as e:
+        raise RetryError(f"cannot read {path.name}: {e.strerror or e}") from e
+    now = datetime.now().isoformat(timespec="seconds")
+    attempts = metadata.get("retries", 0) + 1
+    try:
+        response = client.post("/v1/audio/transcriptions",
+                               data={"model": metadata["route"], "language": metadata.get("language") or ""},
+                               files={"file": (path.name, audio)})
+    except httpx.HTTPError as e:
+        raise RetryError(f"could not reach the proxy ({type(e).__name__}); is it running? "
+                         f"Check with scripts\\proxyctl.ps1 status") from e
+    if response.status_code != 200:
+        failed.update_sidecar(path, retries=attempts, last_retry_at=now,
+                              last_retry_error=f"HTTP {response.status_code}")
+        raise RetryError(f"route '{metadata['route']}' failed again: HTTP {response.status_code}: "
+                         f"{_error_text(response)}")
+    try:
+        text = response.json()["text"]
+    except (ValueError, KeyError, TypeError) as e:
+        raise RetryError("the proxy returned an unreadable response") from e
+    if not text.strip():
+        failed.update_sidecar(path, retries=attempts, last_retry_at=now, last_retry_error="empty transcript")
+        raise RetryError(f"route '{metadata['route']}' returned an empty transcript again; the clip stays pending")
+    failed.update_sidecar(path, retries=attempts, last_retry_at=now, status="recovered", recovered_at=now)
+    return text
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
+def pending(directory):
+    out = []
+    for p in failed.clips(directory):
+        metadata = failed.read_sidecar(p)
+        if metadata is None or metadata.get("status") != "recovered":
+            out.append((p, metadata))
+    return out
+
+
+def list_pending(directory):
+    entries = pending(directory)
+    recovered = len(failed.clips(directory)) - len(entries)
+    for p, metadata in entries:
+        saved = datetime.fromtimestamp(p.stat().st_mtime).isoformat(sep=" ", timespec="minutes")
+        if metadata is None:
+            print(f"  {p.name}  {saved}  metadata missing or unreadable")
+        else:
+            print(f"  {p.name}  {saved}  route {metadata['route']}  failures {metadata.get('failures', 1)}  "
+                  f"retries {metadata.get('retries', 0)}"
+                  + (f"  last retry: {metadata['last_retry_error']}" if metadata.get("last_retry_error") else ""))
+    print(f"{len(entries)} pending, {recovered} recovered in {directory}")
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("clip", nargs="?", type=Path)
     parser.add_argument("--copy", action="store_true", help="copy the text to the Windows clipboard")
-    args = parser.parse_args()
+    parser.add_argument("--list", action="store_true", help="list pending failed clips")
+    args = parser.parse_args(argv)
     cfg = load_config()
     directory = Path(cfg["logging"]["failed_clips_dir"])
-    path = args.clip or max((p for p in directory.glob("*") if p.suffix != ".json"),
-                            key=lambda p: p.stat().st_mtime, default=None)
+    if args.list:
+        list_pending(directory)
+        return 0
+    path = args.clip or next((p for p, _ in pending(directory)), None)
     if path is None:
-        parser.error("no failed clips found")
-    with httpx.Client(base_url=f"http://127.0.0.1:{cfg['server']['port']}", timeout=None,
-                      headers={"Authorization": f"Bearer {env('PROXY_API_KEY')}"}) as client:
-        text = retry_clip(path, cfg, client)
+        print(f"no pending failed clips in {directory}", file=sys.stderr)
+        return 1
+    try:
+        with httpx.Client(base_url=f"http://127.0.0.1:{cfg['server']['port']}", timeout=None,
+                          headers={"Authorization": f"Bearer {env('PROXY_API_KEY')}"}) as client:
+            text = retry_clip(path, cfg, client)
+    except RetryError as e:
+        print(f"retry failed for {path.name}: {e}", file=sys.stderr)
+        return 1
     print(text)
     if args.copy and sys.platform == "win32":
         subprocess.run(["clip.exe"], input=text.encode("utf-16le"), check=True)
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

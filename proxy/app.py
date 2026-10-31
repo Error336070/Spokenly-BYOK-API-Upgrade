@@ -12,6 +12,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
 
+from . import failed as failed_clips
 from .audio import audio_info, prepare_upload, sniff_format
 from .backends import BackendError, build_backends
 from .config import env, load_config
@@ -103,12 +104,13 @@ def create_app(cfg: dict, backends: dict | None = None, config_path: Path | None
 
     async def save_clip(audio, fmt, settings, failed=None):
         def write():
-            d = Path(settings["logging"].get("failed_clips_dir", "data/failed") if failed else settings["logging"]["clips_dir"])
+            if failed:
+                return str(failed_clips.save(Path(settings["logging"].get("failed_clips_dir", "data/failed")),
+                                             audio, fmt, failed))
+            d = Path(settings["logging"]["clips_dir"])
             d.mkdir(parents=True, exist_ok=True)
             path = d / f"{datetime.now():%Y%m%d-%H%M%S}-{uuid.uuid4().hex[:6]}.{fmt}"
             path.write_bytes(audio)
-            if failed:
-                path.with_suffix(path.suffix + ".json").write_text(json.dumps(failed), encoding="utf-8")
             return str(path)
         try:
             return await asyncio.to_thread(write)

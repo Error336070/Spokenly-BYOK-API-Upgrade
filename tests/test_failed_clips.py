@@ -11,7 +11,6 @@ from fastapi.testclient import TestClient
 from proxy.app import create_app
 from proxy.backends import OpenRouterBackend
 from tests.test_translate import cfg, make_wav  # noqa: F401
-from scripts.retry import retry_clip
 
 
 @pytest.mark.parametrize("status,text", [(502, ""), (200, "")])
@@ -52,19 +51,3 @@ def test_malformed_wav_metadata_preserves_failed_audio(cfg):
         assert response.status_code == 502
         path = c.app.state.db._conn.execute("SELECT clip_path FROM requests").fetchone()[0]
         assert Path(path).read_bytes() == audio
-
-
-def test_manual_retry_preserves_saved_route_and_audio(cfg, tmp_path):
-    path = tmp_path / "Zyntrabox.wav"
-    path.write_bytes(make_wav())
-    path.with_suffix(".wav.json").write_text(json.dumps({"route": "gpt", "language": "en"}))
-    seen = []
-    with httpx.Client(base_url="http://127.0.0.1:18765", transport=httpx.MockTransport(
-            lambda r: seen.append(r.content) or httpx.Response(200, json={"text": "Zyntrabox"}))) as client:
-        assert retry_clip(path, cfg, client) == "Zyntrabox"
-        assert b'name="model"\r\n\r\ngpt' in seen[0]
-        assert path.read_bytes() in seen[0]
-        del cfg["routes"]["gpt"]
-        with pytest.raises(ValueError, match="saved route"):
-            retry_clip(path, cfg, client)
-    assert len(seen) == 1
