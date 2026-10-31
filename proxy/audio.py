@@ -70,8 +70,17 @@ def prepare_upload(audio: bytes, fmt: str, cfg: dict) -> tuple[bytes, str]:
     return audio, fmt
 
 
+# Formats the bundled libsndfile can usually read. Others (m4a, webm, aac) keep the unknown-duration path.
+_INFO_FORMATS = {"wav", "flac", "ogg", "mp3"}
+
+
+def audio_info(data: bytes, fmt: str) -> dict | None:
+    """Best-effort metadata for the formats above; None when unsupported or unreadable."""
+    return wav_info(data) if fmt in _INFO_FORMATS else None
+
+
 def wav_info(data: bytes) -> dict | None:
-    """Sample rate, channels, bit depth, duration for WAV; None for other formats."""
+    """Sample rate, channels, bit depth, duration: WAV through the wave module, else libsndfile; None if unreadable."""
     try:
         with wave.open(io.BytesIO(data)) as w:
             frames, rate = w.getnframes(), w.getframerate()
@@ -89,6 +98,6 @@ def wav_info(data: bytes) -> dict | None:
             bits = {"PCM_U8": 8, "PCM_16": 16, "PCM_24": 24, "PCM_32": 32, "FLOAT": 32, "DOUBLE": 64}
             return {"sample_rate": info.samplerate, "channels": info.channels,
                     "bits": bits.get(info.subtype), "duration_s": round(info.duration, 3)}
-        except (RuntimeError, ValueError, OSError):
+        except Exception:  # metadata is optional; a malformed file must not fail the request
             pass
     return None

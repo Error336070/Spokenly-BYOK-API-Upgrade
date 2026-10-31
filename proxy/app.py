@@ -12,7 +12,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
 
-from .audio import prepare_upload, sniff_format, wav_info
+from .audio import audio_info, prepare_upload, sniff_format
 from .backends import BackendError, build_backends
 from .config import env, load_config
 from .notify import Notifier
@@ -317,7 +317,7 @@ def create_app(cfg: dict, backends: dict | None = None, config_path: Path | None
         route = settings["routes"][route_name]
         language = str(fields.get("language") or settings.get("language") or "") or None
         fmt = sniff_format(audio, upload.filename or "", upload.content_type or "")
-        winfo = wav_info(audio) if fmt == "wav" else None
+        winfo = audio_info(audio, fmt)
 
         state["count"] += 1
         details = None
@@ -329,7 +329,7 @@ def create_app(cfg: dict, backends: dict | None = None, config_path: Path | None
                 "fields": {k: str(v) for k, v in fields.items()},
                 "file": {"filename": upload.filename, "content_type": upload.content_type,
                          "bytes": len(audio), "sniffed_format": fmt, "magic": audio[:12].hex(),
-                         "wav": winfo},
+                         "audio_info": winfo},
             }
             log.info("request detail #%d: %s", state["count"], json.dumps(details))
 

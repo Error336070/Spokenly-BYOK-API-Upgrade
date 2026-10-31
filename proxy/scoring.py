@@ -41,6 +41,12 @@ def _flat(s: str) -> str:
     return " " + " ".join(t for t in tokens if t) + " "
 
 
+def contains_phrase(tokens: list[str], phrase: list[str]) -> bool:
+    """True if phrase occurs as consecutive whole tokens."""
+    n = len(phrase)
+    return n > 0 and any(tokens[i:i + n] == phrase for i in range(len(tokens) - n + 1))
+
+
 def score(expected: str, hypothesis: str, vocab: list[str] = (), forbidden: list[str] = ()) -> dict:
     ref, hyp = normalize(expected), normalize(hypothesis)
     errors = edit_distance(ref, hyp)
@@ -51,5 +57,6 @@ def score(expected: str, hypothesis: str, vocab: list[str] = (), forbidden: list
         "ref_words": len(ref),
         "fillers": sum(1 for w in hyp if w in FILLERS),
         "vocab_missed": [v for v in vocab if _flat(v) not in flat],
-        "forbidden_found": [f for f in forbidden if f.lower() in hyp],
+        # normalized like the transcript, so "fifteen" matches "15" and "MAI-Transcribe" matches "MAI Transcribe"
+        "forbidden_found": [f for f in forbidden if contains_phrase(hyp, normalize(f))],
     }

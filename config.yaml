@@ -33,8 +33,8 @@ credit:
 timeouts:
   connect_s: 5
   request_s: 15          # minimum total provider deadline, including upload and response body
-  base_s: 10             # deadline is max(request_s, base_s + per_audio_second_s * WAV duration)
-  per_audio_second_s: 0.15 # seconds added per second of audio; unknown duration uses request_s or base_s
+  base_s: 10             # deadline is max(request_s, base_s + per_audio_second_s * audio duration)
+  per_audio_second_s: 0.15 # seconds added per second of audio; duration is read from WAV, FLAC, OGG and MP3 when possible; unknown uses request_s
 
 logging:
   db_path: data/requests.sqlite

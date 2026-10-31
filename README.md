@@ -254,7 +254,7 @@ Run each one with `.\.venv\Scripts\python.exe scripts\<name>.py`.
 3. Run `shootout.py import` to label your last 7 recordings. Add `--skip N` if you dictated more afterwards, or `--ids mid1` to redo one script.
 4. Run `shootout.py run --repeat 3`. Add `--backend native` or `--routes assembly gpt` to narrow the run.
 
-The scorer reports word error rate, fillers kept, vocabulary terms missed and forbidden words, such as "Tuesday" in "Tuesday, no, Wednesday". It ignores case, punctuation, "3 PM" against "3 p.m." and "12%" against "12 percent". Results go to `shootout/results/`. `shootout.py rescore <csv>` scores a saved run again without calling any API.
+The scorer reports word error rate, fillers kept, vocabulary terms missed and forbidden words or phrases, such as "Tuesday" in "Tuesday, no, Wednesday". It ignores case, punctuation, "3 PM" against "3 p.m." and "12%" against "12 percent". A forbidden phrase counts only as whole consecutive words, after the same normalization, so "fifteen" also matches "15". Results go to `shootout/results/`, with each clip's audio duration, the billed cost the provider reported and, for AssemblyAI on its own API, an estimated cost from the configured rate. `shootout.py rescore <csv>` scores a saved run again without calling any API.
 
 </details>
 
