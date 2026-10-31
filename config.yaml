@@ -24,7 +24,7 @@ language: en             # used when Spokenly sends no language
 credit:
   enabled: true          # GET OpenRouter /key at startup and periodically; no transcription charge
   interval_s: 14400      # check every 4 hours
-  low_usd: 1             # toast below this remaining key budget; null/unlimited is unknown
+  low_usd: 1             # toast below this OpenRouter key budget (null/unlimited is unknown) or AssemblyAI estimate
   # Sync API price from assemblyai.com/products/sync-speech-to-text (2026-10-30), keyterms included.
   # A third-party report says it dropped to 0.30 on 2026-10-25; 0.45 keeps the estimate on the safe side.
   assemblyai_hourly_rate_usd: 0.45

@@ -316,7 +316,9 @@ proxy/
   audio.py        format detection, WAV details, FLAC encoding
   notify.py       Windows notifications
   scoring.py      word error rate, filler and vocabulary scoring
-  storage.py      SQLite request log
+  storage.py      SQLite request log and lifetime usage totals
+  usage.py        AssemblyAI cost and credit estimates
+  failed.py       failed clips and their recovery state
   retention.py    deletes old recordings and log rows
 scripts/          stats, vocabulary, shootout, option probe, auto-start
 shootout/         reading scripts. Your recordings and results stay out of git.

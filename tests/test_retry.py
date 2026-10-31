@@ -147,3 +147,27 @@ def test_sidecar_is_valid_json_after_updates(tmp_path):
     for i in range(5):
         failed.update_sidecar(path, retries=i)
     assert json.loads(failed.sidecar(path).read_text(encoding="utf-8"))["retries"] == 4
+
+
+def test_default_selection_skips_unreadable_metadata(cfg, tmp_path, monkeypatch, capsys):  # noqa: F811
+    import os
+    cfg["logging"]["failed_clips_dir"] = str(tmp_path / "failed")
+    monkeypatch.setattr(retry, "load_config", lambda: cfg)
+    good = saved_clip(tmp_path)
+    broken = saved_clip(tmp_path, audio=make_wav(2))
+    os.utime(good, (1, 1))  # broken is the newest
+    failed.sidecar(broken).unlink()
+    sent = []
+
+    class Client(httpx.Client):
+        def __init__(self, **kw):
+            kw.pop("timeout", None)
+            super().__init__(transport=httpx.MockTransport(
+                lambda r: sent.append(r.content) or httpx.Response(200, json={"text": "Zyntrabox"})), **kw)
+
+    monkeypatch.setattr(retry.httpx, "Client", Client)
+    assert retry.main([]) == 0
+    assert capsys.readouterr().out.strip() == "Zyntrabox"
+    assert good.read_bytes() in sent[0]
+    assert retry.main([]) == 1
+    assert "no pending failed clips with readable metadata" in capsys.readouterr().err

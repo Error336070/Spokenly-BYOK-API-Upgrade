@@ -25,6 +25,8 @@ The user runs the proxy as a Task Scheduler task called `DictationProxy`, and di
 - `proxy/app.py` handles endpoints, request logging, config hot reload, keep-warm and notifications.
 - `proxy/backends.py` holds `OpenRouterBackend` and `NativeBackend` (AssemblyAI Sync API and Azure Speech).
 - `proxy/translate.py` holds the pure request and response translation. Most tests target it.
+- `proxy/storage.py` keeps lifetime usage totals in `usage_rollup`, filled in the same transaction that retention deletes rows. `proxy/usage.py` turns them into the AssemblyAI estimate.
+- `proxy/failed.py` saves failed clips once per distinct audio content, with a `.json` sidecar that `scripts/retry.py` marks recovered.
 - `config.yaml` is committed. `vocabulary.txt`, `.env` and `data/` are personal and git-ignored.
 - `tests/` mocks every provider with `httpx.MockTransport`. No test calls a real API.
 

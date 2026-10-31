@@ -100,9 +100,9 @@ def main(argv=None):
     if args.list:
         list_pending(directory)
         return 0
-    path = args.clip or next((p for p, _ in pending(directory)), None)
+    path = args.clip or next((p for p, metadata in pending(directory) if metadata is not None), None)
     if path is None:
-        print(f"no pending failed clips in {directory}", file=sys.stderr)
+        print(f"no pending failed clips with readable metadata in {directory} (see --list)", file=sys.stderr)
         return 1
     try:
         with httpx.Client(base_url=f"http://127.0.0.1:{cfg['server']['port']}", timeout=None,
