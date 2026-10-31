@@ -272,9 +272,9 @@ Restart the proxy after you change `.env` or the code. The proxy writes its log 
 
 `http://127.0.0.1:8765/health` reports two things. `status` is `ok` while the process and its background tasks run, and `degraded` when one of those tasks has stopped. `route_readiness` lists each route with `ready: false` and the missing variable's name when its active backend started without a key. A missing key doesn't change `status`, so the watchdog doesn't restart the proxy over it. The proxy also logs a warning for each such route at startup and after each config reload. It reads `.env` only at startup, so restart it after you add a key.
 
-If the proxy fails to start, for example because of an invalid `config.yaml`, the error goes to `data\proxy.log` and `proxyctl.ps1` exits with code 1.
+`proxyctl.ps1 start` and `restart` wait up to 20 seconds for `/health` to answer instead of a fixed pause. `status` exits with code 0 when the proxy is up, 1 when it doesn't answer and 2 when it answers but a background task has stopped. It also lists routes that aren't ready. If the proxy fails to start, for example because of an invalid `config.yaml`, the error goes to `data\proxy.log` and `proxyctl.ps1` exits with code 1.
 
-`install-autostart.ps1 -Watchdog` also registers a second task that calls `/health` every 5 minutes. If the check fails, it shows a notification and starts the proxy task. It logs to `data\watchdog.log`. `uninstall-autostart.ps1` removes both tasks.
+`install-autostart.ps1 -Watchdog` also registers a second task that calls `/health` every 5 minutes. It only looks at `status`, so a route without a key never triggers a restart. If the proxy task isn't running, the watchdog starts it and waits up to 60 seconds for `/health`. If the task is running but the proxy doesn't answer or reports `degraded`, the watchdog waits for 3 failed checks in a row, which is 15 minutes, then ends and starts the task. It restarts at most once every 30 minutes and shows at most one notification an hour. It keeps its counters in `data\watchdog.json` and logs to `data\watchdog.log`. `uninstall-autostart.ps1` removes both tasks.
 
 The proxy shows a Windows notification in these cases:
 
