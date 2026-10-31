@@ -103,3 +103,49 @@ def test_native_upstream_errors(cfg):  # noqa: F811
                    files={"file": ("a.wav", make_wav(), "audio/wav")})
         msg = r.json()["error"]["message"]
         assert r.status_code == 502 and "Invalid API key" in msg and "ASSEMBLYAI_API_KEY" in msg
+
+
+@pytest.mark.parametrize("extra,request_id,server_ms", [
+    ({"session_id": "Zyntrabox-1", "request_time_ms": 300}, "Zyntrabox-1", 300.0),
+    ({}, None, None),
+    ({"session_id": 7, "request_time_ms": "slow"}, None, None),
+])
+def test_assemblyai_diagnostics_and_estimate_logged(cfg, extra, request_id, server_ms):  # noqa: F811
+    cfg["routes"]["assembly"]["backend"] = "native"
+    cfg["credit"] = {"enabled": False, "assemblyai_hourly_rate_usd": 0.36}
+    with _app(cfg, lambda r: httpx.Response(200, json={"text": "Zyntrabox", **extra})) as c:
+        c.post("/v1/audio/transcriptions", data={"model": "assembly"},
+               files={"file": ("a.wav", make_wav(10.0), "audio/wav")})
+        row = c.app.state.db._conn.execute(
+            "SELECT provider_request_id, provider_request_ms, estimated_cost, cost FROM requests").fetchone()
+    assert row[:2] == (request_id, server_ms)
+    assert row[2] == pytest.approx(0.001) and row[3] is None  # estimate only, no billed cost
+
+
+def test_openrouter_rows_have_no_native_estimate(cfg):  # noqa: F811
+    cfg["credit"] = {"enabled": False, "assemblyai_hourly_rate_usd": 0.36}
+    orb = OpenRouterBackend(cfg, "k", transport=httpx.MockTransport(
+        lambda r: httpx.Response(200, json={"text": "x", "usage": {"cost": 0.002}})))
+    with TestClient(create_app(cfg, backends={"openrouter": orb}), base_url="http://127.0.0.1:18765") as c:
+        c.post("/v1/audio/transcriptions", data={"model": "gpt"},
+               files={"file": ("a.wav", make_wav(10.0), "audio/wav")})
+        row = c.app.state.db._conn.execute(
+            "SELECT cost, estimated_cost, provider_request_id FROM requests").fetchone()
+    assert row == (0.002, None, None)
+
+
+def test_old_database_gains_diagnostic_columns(tmp_path):
+    import sqlite3
+    from proxy.storage import RequestLog
+    path = str(tmp_path / "Zyntrabox.sqlite")
+    old = sqlite3.connect(path)
+    old.execute("CREATE TABLE requests (id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT NOT NULL, cost REAL)")
+    old.execute("INSERT INTO requests (ts, cost) VALUES ('2026-01-01', 0.5)")
+    old.commit()
+    old.close()
+    for _ in range(2):  # reopening is idempotent
+        db = RequestLog(path)
+        cols = {r[1] for r in db._conn.execute("PRAGMA table_info(requests)")}
+        assert {"estimated_cost", "provider_request_id", "provider_request_ms"} <= cols
+        assert db._conn.execute("SELECT cost, estimated_cost FROM requests").fetchall() == [(0.5, None)]
+        db.close()

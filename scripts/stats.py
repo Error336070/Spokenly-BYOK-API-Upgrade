@@ -27,6 +27,27 @@ def fmt(v, unit=""):
     return "-" if v is None else f"{v:.0f}{unit}"
 
 
+def native_diagnostics(rows):
+    """Per native route: the provider's reported request time against our round trip, and estimated cost."""
+    lines = []
+    for route in sorted({r["route"] for r in rows if r["backend"] == "native"}):
+        ok = [r for r in rows if r["route"] == route and r["backend"] == "native" and r["status"] == "ok"]
+        server = [r["provider_request_ms"] for r in ok if r["provider_request_ms"] is not None]
+        outside = [r["provider_latency_ms"] - r["provider_request_ms"] for r in ok
+                   if r["provider_request_ms"] is not None and r["provider_latency_ms"] is not None]
+        estimates = [r["estimated_cost"] for r in ok if r["estimated_cost"] is not None]
+        ids = [r["provider_request_id"] for r in ok if r["provider_request_id"]]
+        lines.append(f"  {route:13} ok {len(ok):4}  server p50 {fmt(pct(server, 50), ' ms'):>8}  "
+                     f"outside server p50 {fmt(pct(outside, 50), ' ms'):>8}  "
+                     f"est $/req {('%.5f' % statistics.mean(estimates)) if estimates else '-':>8}  "
+                     f"latest request id {ids[-1] if ids else '-'}")
+    if not lines:
+        return ""
+    return ("Native provider diagnostics (selected period):\n" + "\n".join(lines) +
+            "\nserver = request time the provider reports; outside server = our round trip minus that "
+            "(upload, network, queueing).\nest = duration x configured rate, an estimate and not a billed cost.")
+
+
 def usage_summary(rows, cfg):
     lines = []
     for backend in sorted({r["backend"] for r in rows}):
@@ -94,6 +115,10 @@ def main():
         fresh = r["new_connection"] if "new_connection" in r.keys() else None
         connections.append(f"  {r['ts']} {r['route']:12} gap {fmt(gap, 's'):>6} new TCP {fresh if fresh is not None else 'unknown'}")
     print("\n".join(connections[-20:]))
+
+    diagnostics = native_diagnostics(rows)
+    if diagnostics:
+        print("\n" + diagnostics)
 
     print("\n" + usage_summary(rows, cfg))
 

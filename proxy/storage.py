@@ -22,7 +22,10 @@ _COLUMNS = [
     ("or_provider", "TEXT"),           # provider OpenRouter actually routed to
     ("total_latency_ms", "REAL"),      # whole request inside the proxy
     ("new_connection", "INTEGER"),    # NULL when the transport exposes no trace events
-    ("cost", "REAL"),
+    ("cost", "REAL"),                  # billed cost the provider reported (OpenRouter usage.cost)
+    ("estimated_cost", "REAL"),        # our estimate from duration x configured rate; never a billed figure
+    ("provider_request_id", "TEXT"),   # native provider's request id (AssemblyAI session_id)
+    ("provider_request_ms", "REAL"),   # request time the native provider reports (AssemblyAI request_time_ms)
     ("generation_id", "TEXT"),
     ("status", "TEXT"),
     ("http_status", "INTEGER"),

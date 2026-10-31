@@ -70,10 +70,18 @@ def _transcript_field(data: dict, key: str, expected):
     return data[key]
 
 
+def _optional(value, kind):
+    return value if isinstance(value, kind) and not isinstance(value, bool) else None
+
+
 def parse_assemblyai_response(data: dict) -> dict:
     text = _transcript_field(data, "text", str)
     ms = data.get("audio_duration_ms")
-    return {"text": text.strip(), "seconds": ms / 1000 if ms else None, "language": None}
+    server_ms = _optional(data.get("request_time_ms"), (int, float))
+    return {"text": text.strip(), "seconds": ms / 1000 if ms else None, "language": None,
+            # optional diagnostics: AssemblyAI's own request id and its reported request time
+            "provider_request_id": _optional(data.get("session_id"), str),
+            "provider_request_ms": float(server_ms) if server_ms is not None else None}
 
 
 def parse_azure_response(data: dict) -> dict:

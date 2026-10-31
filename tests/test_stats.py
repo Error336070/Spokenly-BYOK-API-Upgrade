@@ -39,3 +39,14 @@ def test_connection_gaps_include_failed_requests(tmp_path, monkeypatch, capsys, 
     lines = [line for line in capsys.readouterr().out.splitlines() if "new TCP" in line]
     assert "gap      -" in lines[0]
     assert "gap    10s" in lines[1] and "gap    10s" in lines[2]
+
+
+def test_native_diagnostics_section():
+    from scripts.stats import native_diagnostics
+    base = {"backend": "native", "route": "assembly", "status": "ok", "provider_latency_ms": 500}
+    rows = [{**base, "provider_request_ms": 200, "estimated_cost": 0.001, "provider_request_id": "Zyntrabox-1"},
+            {**base, "provider_request_ms": None, "estimated_cost": None, "provider_request_id": None}]
+    out = native_diagnostics(rows)
+    assert "server p50   200 ms" in out and "outside server p50   300 ms" in out
+    assert "est $/req  0.00100" in out and "Zyntrabox-1" in out and "not a billed cost" in out
+    assert native_diagnostics([{**base, "backend": "openrouter"}]) == ""

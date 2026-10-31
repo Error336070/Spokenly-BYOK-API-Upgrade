@@ -19,6 +19,7 @@ from .notify import Notifier
 from .retention import cleanup
 from .storage import RequestLog
 from .translate import format_response
+from .usage import estimated_cost
 
 log = logging.getLogger("proxy")
 _REDACT = {"authorization", "x-api-key", "api-key", "cookie"}
@@ -345,6 +346,8 @@ def create_app(cfg: dict, backends: dict | None = None, config_path: Path | None
             status="ok", http_status=200, provider_model=result["provider_model"],
             audio_duration_s=duration, provider_latency_ms=round(result["provider_latency_ms"], 1),
             new_connection=result.get("new_connection"), cost=result.get("cost"), generation_id=result.get("generation_id"),
+            provider_request_id=result.get("provider_request_id"), provider_request_ms=result.get("provider_request_ms"),
+            estimated_cost=estimated_cost(route["backend"], result["provider_model"], duration, settings),
             transcript=result["text"], total_latency_ms=_ms(t0),
         )
         if not result["text"] and (duration or 0) > 2:
