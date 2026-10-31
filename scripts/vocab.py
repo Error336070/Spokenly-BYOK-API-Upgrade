@@ -84,7 +84,7 @@ FUZZY_CUTOFF = 0.8
 
 
 def fuzzy_variants(texts, vocabulary):
-    """term -> Counter of the closest near-miss surface per dictation, at a ratio of at least FUZZY_CUTOFF.
+    """Map each term to a Counter of its closest near-miss surface per dictation, with a ratio of at least FUZZY_CUTOFF.
 
     Same result as scoring every word window with SequenceMatcher(None, canonical, key).ratio() and taking
     the max by (ratio, -len(surface), surface). The ratio is order dependent, so the argument order stays.
