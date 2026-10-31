@@ -107,6 +107,7 @@ def test_failed_retry_through_proxy_does_not_duplicate_clip(cfg, tmp_path):  # n
         assert failed.clips(Path(cfg["logging"]["failed_clips_dir"])) == [path]
         meta = failed.read_sidecar(path)
         assert meta["failures"] == 3 and meta["retries"] == 2 and meta["route"] == "gpt"
+        assert meta["last_retry_error"] == "HTTP 502"
         # a client cannot point the proxy at another file: a different upload is a new clip
         c.post("/v1/audio/transcriptions", data={"model": "gpt", "file_path": str(path)},
                files={"file": ("x.wav", make_wav(4))})
@@ -171,3 +172,49 @@ def test_default_selection_skips_unreadable_metadata(cfg, tmp_path, monkeypatch,
     assert good.read_bytes() in sent[0]
     assert retry.main([]) == 1
     assert "no pending failed clips with readable metadata" in capsys.readouterr().err
+
+
+def test_cli_uses_the_configured_ipv6_host(cfg, tmp_path, monkeypatch, capsys):  # noqa: F811
+    cfg["server"].update(host="::1", port=18765)
+    cfg["logging"]["failed_clips_dir"] = str(tmp_path / "failed")
+    monkeypatch.setattr(retry, "load_config", lambda: cfg)
+    saved_clip(tmp_path)
+    seen = {}
+
+    class Client:
+        def __init__(self, *, base_url, **kwargs):
+            seen["base_url"] = base_url
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def post(self, *args, **kwargs):
+            return httpx.Response(200, json={"text": "Zyntrabox"})
+
+    monkeypatch.setattr(retry.httpx, "Client", Client)
+    assert retry.main([]) == 0
+    assert capsys.readouterr().out.strip() == "Zyntrabox"
+    assert seen["base_url"] == "http://[::1]:18765"
+
+
+def test_cli_ipv6_bypasses_environment_proxy(cfg, tmp_path, monkeypatch, capsys):  # noqa: F811
+    cfg["server"].update(host="::1", port=18765)
+    cfg["logging"]["failed_clips_dir"] = str(tmp_path / "failed")
+    monkeypatch.setattr(retry, "load_config", lambda: cfg)
+    monkeypatch.setenv("HTTP_PROXY", "http://proxy.example.invalid:8080")
+    monkeypatch.setenv("NO_PROXY", "localhost,127.0.0.1")
+    path = saved_clip(tmp_path)
+    connections = []
+
+    def handle(transport, request):
+        # Inspect httpx's actual transport selection, without opening a socket.
+        connections.append(type(transport._pool).__name__)
+        return httpx.Response(200, json={"text": "Zyntrabox"})
+
+    monkeypatch.setattr(httpx.HTTPTransport, "handle_request", handle)
+    assert retry.main([str(path)]) == 0
+    assert capsys.readouterr().out.strip() == "Zyntrabox"
+    assert connections == ["ConnectionPool"]

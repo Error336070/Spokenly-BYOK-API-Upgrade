@@ -9,6 +9,7 @@ A nonempty transcript marks the clip recovered in its .json sidecar. The audio s
 import argparse
 import subprocess
 import sys
+import uuid
 from datetime import datetime
 from pathlib import Path
 
@@ -16,7 +17,7 @@ import httpx
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from proxy import failed  # noqa: E402
-from proxy.config import env, load_config  # noqa: E402
+from proxy.config import env, load_config, local_server_url  # noqa: E402
 
 
 class RetryError(ValueError):
@@ -30,12 +31,13 @@ def _error_text(response: httpx.Response) -> str:
         return response.text[:300] or response.reason_phrase
 
 
-def _record_result(path, error):
+def _record_result(path, error, generation, attempt_id):
     try:
-        failed.record_retry(path, error)
+        return failed.record_retry(path, error, started_generation=generation, attempt_id=attempt_id)
     except (OSError, ValueError) as exc:
         # A metadata failure must not discard a successfully recovered transcript.
         print(f"warning: could not update recovery state for {path.name}: {exc}", file=sys.stderr)
+        return None
 
 
 def retry_clip(path, cfg, client):
@@ -49,16 +51,19 @@ def retry_clip(path, cfg, client):
         audio = path.read_bytes()
     except OSError as e:
         raise RetryError(f"cannot read {path.name}: {e.strerror or e}") from e
+    generation = metadata.get("generation", 0)
+    attempt_id = uuid.uuid4().hex
     try:
         response = client.post("/v1/audio/transcriptions",
-                               data={"model": metadata["route"], "language": metadata.get("language") or ""},
+                               data={"model": metadata["route"], "language": metadata.get("language") or "",
+                                     "_dictation_proxy_retry": attempt_id},
                                files={"file": (path.name, audio)})
     except httpx.HTTPError as e:
-        _record_result(path, type(e).__name__)
+        _record_result(path, type(e).__name__, generation, attempt_id)
         raise RetryError(f"could not reach the proxy ({type(e).__name__}); is it running? "
                          f"Check with scripts\\proxyctl.ps1 status") from e
     if response.status_code != 200:
-        _record_result(path, f"HTTP {response.status_code}")
+        _record_result(path, f"HTTP {response.status_code}", generation, attempt_id)
         raise RetryError(f"route '{metadata['route']}' failed again: HTTP {response.status_code}: "
                          f"{_error_text(response)}")
     try:
@@ -66,12 +71,15 @@ def retry_clip(path, cfg, client):
         if not isinstance(text, str):
             raise ValueError("transcript is not text")
     except (ValueError, KeyError, TypeError) as e:
-        _record_result(path, "unreadable response")
+        _record_result(path, "unreadable response", generation, attempt_id)
         raise RetryError("the proxy returned an unreadable response") from e
     if not text.strip():
-        _record_result(path, "empty transcript")
+        _record_result(path, "empty transcript", generation, attempt_id)
         raise RetryError(f"route '{metadata['route']}' returned an empty transcript again; the clip stays pending")
-    _record_result(path, None)
+    recorded = _record_result(path, None, generation, attempt_id)
+    if recorded is not None and recorded.get("status") != "recovered":
+        print(f"warning: a newer failure of {path.name} arrived during this retry, so it stays pending",
+              file=sys.stderr)
     return text
 
 
@@ -114,7 +122,8 @@ def main(argv=None):
         print(f"no pending failed clips with readable metadata in {directory} (see --list)", file=sys.stderr)
         return 1
     try:
-        with httpx.Client(base_url=f"http://127.0.0.1:{cfg['server']['port']}", timeout=None,
+        with httpx.Client(base_url=local_server_url(cfg["server"]["host"], cfg["server"]["port"]), timeout=None,
+                          trust_env=False,
                           headers={"Authorization": f"Bearer {env('PROXY_API_KEY')}"}) as client:
             text = retry_clip(path, cfg, client)
     except RetryError as e:

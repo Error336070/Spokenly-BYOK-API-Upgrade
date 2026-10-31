@@ -130,7 +130,7 @@ def _update_from_another_process(directory, gate):
     directory = Path(directory)
     for _ in range(10):
         path = failed.save(directory, make_wav(), "wav", {"route": "gpt", "language": "en"})
-        failed.record_retry(path, "HTTP 502")
+        failed.record_retry(path, "HTTP 502", started_generation=failed.read_sidecar(path)["generation"])
 
 
 def test_proxy_and_retry_processes_preserve_all_updates(tmp_path):

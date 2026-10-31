@@ -1,6 +1,9 @@
 """Failed-request clips in logging.failed_clips_dir, each with a JSON sidecar of route metadata and state.
 
 The sidecar's status is "pending" until scripts/retry.py gets a nonempty transcript, then "recovered".
+Every saved failure increases the sidecar's "generation". A retry records the generation it read before sending,
+and its result only changes the status if no newer failure has arrived since, so a slow successful retry cannot
+hide a failure that happened while it was in flight. Sidecars written before this field count as generation 0.
 A clip whose bytes, route and language match one already saved reuses that file, so failed retries don't
 pile up copies or inherit a different route. No client-supplied path determines the saved file.
 """
@@ -14,6 +17,11 @@ from pathlib import Path
 
 _lock = threading.Lock()
 LOCK_FILENAME = ".recovery.lock"
+
+
+def _valid_retry_attempt(value) -> bool:
+    return (isinstance(value, str) and len(value) == 32
+            and all(char in "0123456789abcdef" for char in value))
 
 
 @contextmanager
@@ -67,7 +75,9 @@ def _read_sidecar(path: Path) -> dict | None:
         return None
     if data.get("language") is not None and not isinstance(data["language"], str):
         return None
-    for key in ("failures", "retries"):
+    if "last_retry_attempt" in data and not _valid_retry_attempt(data["last_retry_attempt"]):
+        return None
+    for key in ("failures", "retries", "generation"):
         if key in data and (type(data[key]) is not int or data[key] < 0):
             return None
     return data
@@ -96,21 +106,33 @@ def update_sidecar(path: Path, **changes) -> dict:
         return metadata
 
 
-def record_retry(path: Path, error: str | None) -> dict:
-    """Count a completed attempt and apply its outcome to the latest record, under the same process lock."""
+def record_retry(path: Path, error: str | None, *, started_generation: int,
+                 attempt_id: str | None = None) -> dict:
+    """Count a completed attempt and apply its outcome if it still describes the latest failure.
+
+    started_generation is the sidecar's generation when the attempt read it. If a newer failure was saved since,
+    the result is stale: it is counted, but it neither recovers the clip nor records its error. The one exception
+    is an error from the failure that the proxy saved for this exact retry attempt. A failed attempt also does not
+    reopen a generation that another retry has already recovered.
+    """
+    if attempt_id is not None and not _valid_retry_attempt(attempt_id):
+        raise ValueError("the retry attempt id is invalid")
     now = datetime.now().isoformat(timespec="seconds")
     with directory_lock(path.parent):
         metadata = _read_sidecar(path)
         if metadata is None:
             raise ValueError("the clip metadata is missing or unreadable")
-        metadata.update(retries=metadata.get("retries", 0) + 1, last_retry_at=now,
-                        status="pending" if error else "recovered")
-        if error:
-            metadata["last_retry_error"] = error
-            metadata.pop("recovered_at", None)
-        else:
-            metadata["recovered_at"] = now
+        metadata.update(retries=metadata.get("retries", 0) + 1, last_retry_at=now)
+        current = metadata.get("generation", 0) == started_generation
+        own_failure = attempt_id is not None and metadata.get("last_retry_attempt") == attempt_id
+        if current and error is None:
+            metadata.update(status="recovered", recovered_at=now)
             metadata.pop("last_retry_error", None)
+        elif error is not None and (current or own_failure) and metadata.get("status") != "recovered":
+            metadata.update(status="pending", last_retry_error=error)
+            metadata.pop("recovered_at", None)
+        if current or own_failure:
+            metadata.pop("last_retry_attempt", None)
         os.utime(path)
         _write_sidecar(path, metadata)
         return metadata
@@ -137,16 +159,29 @@ def _same_content(directory: Path, audio: bytes, fmt: str, metadata: dict) -> Pa
 def save(directory: Path, audio: bytes, fmt: str, metadata: dict) -> Path:
     """Save a failed clip, or reuse the file already holding the same bytes. Returns its path."""
     now = datetime.now().isoformat(timespec="seconds")
+    retry_attempt = metadata.get("retry_attempt")
+    if retry_attempt is not None and not _valid_retry_attempt(retry_attempt):
+        raise ValueError("the retry attempt id is invalid")
+    stored_metadata = {key: value for key, value in metadata.items() if key != "retry_attempt"}
     with directory_lock(directory):
-        existing = _same_content(directory, audio, fmt, metadata)
+        existing = _same_content(directory, audio, fmt, stored_metadata)
         if existing is not None:
             old = _read_sidecar(existing)
-            old.update(status="pending", failures=old.get("failures", 1) + 1, last_failed_at=now)
+            old.update(status="pending", failures=old.get("failures", 1) + 1, last_failed_at=now,
+                       generation=old.get("generation", 0) + 1)
             old.pop("recovered_at", None)
+            if retry_attempt is None:
+                old.pop("last_retry_attempt", None)
+            else:
+                old["last_retry_attempt"] = retry_attempt
             _write_sidecar(existing, old)
             os.utime(existing)
             return existing
         path = directory / f"{datetime.now():%Y%m%d-%H%M%S}-{uuid.uuid4().hex[:6]}.{fmt}"
         _write_atomic(path, audio)
-        _write_sidecar(path, {**metadata, "status": "pending", "failures": 1, "saved_at": now})
+        initial = {**stored_metadata, "status": "pending", "failures": 1, "generation": 1,
+                   "saved_at": now}
+        if retry_attempt is not None:
+            initial["last_retry_attempt"] = retry_attempt
+        _write_sidecar(path, initial)
         return path

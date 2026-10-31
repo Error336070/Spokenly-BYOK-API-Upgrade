@@ -234,7 +234,7 @@ Run each one with `.\.venv\Scripts\python.exe scripts\<name>.py`.
 | Command | Result |
 |---|---|
 | `stats.py` | latency, errors and cost per backend, audio minutes, AssemblyAI request times and request ids, and how often a request opened a new connection after each length of pause. `--since` limits these to a period. The AssemblyAI credit estimate always covers all tracked requests. |
-| `retry.py [clip]` | sends the newest pending failed clip, or the one you name, through the proxy on its original route and prints the text. `--copy` also puts it on the clipboard. `--list` shows the pending clips. A nonempty transcript marks the clip recovered in its `.json` file, and the audio stays until retention deletes it. A failed or empty retry leaves it pending, prints the reason and exits with code 1. |
+| `retry.py [clip]` | sends the newest pending failed clip, or the one you name, through the proxy on its original route and prints the text. `--copy` also puts it on the clipboard. `--list` shows the pending clips. A nonempty transcript marks the clip recovered in its `.json` file, and the audio stays until retention deletes it. If the same audio fails again in the proxy while a retry is in flight, that retry's result does not mark the clip recovered, so the newer failure stays pending. A failed or empty retry leaves it pending, prints the reason and exits with code 1. |
 | `vocab.py usage` | how often you say each term, and which terms are past a route's `vocab_max` |
 | `vocab.py suggest --min 2` | likely names, spelling variants, and phrases close to a vocabulary term but not exact, ranked by how many dictations contain them |
 | `vocab.py add "Term"` | adds a term to `vocabulary.txt`, and warns when a route's `vocab_max` leaves the new term out. It uses the config named by `PROXY_CONFIG` when that is set. |
@@ -272,7 +272,7 @@ Restart the proxy after you change `.env` or the code. The proxy writes its log 
 
 `http://127.0.0.1:8765/health` reports two things. `status` is `ok` while the process and its background tasks run, and `degraded` when one of those tasks has stopped. `route_readiness` lists each route with `ready: false` and the missing variable's name when its active backend started without a key. A missing key doesn't change `status`, so the watchdog doesn't restart the proxy over it. The proxy also logs a warning for each such route at startup and after each config reload. Provider clients keep their startup credentials, so restart the proxy after you add a key.
 
-`proxyctl.ps1 start` and `restart` wait up to 20 seconds for `/health` to answer instead of a fixed pause. `status` exits with code 0 when the proxy is up, 1 when it doesn't answer and 2 when it answers but a background task has stopped. It also lists routes that aren't ready. If the proxy fails to start, for example because of an invalid `config.yaml`, the error goes to `data\proxy.log` and `proxyctl.ps1` exits with code 1.
+`proxyctl.ps1 start` and `restart` wait up to 20 seconds for `/health` to answer instead of a fixed pause. `status` exits with code 0 when the proxy is up, 1 when it doesn't answer and 2 when it answers but a background task has stopped. It also lists routes that aren't ready. Pass `-Address ::1` and the configured `-Port` when the server uses a nondefault loopback address or port. If the proxy fails to start, for example because of an invalid `config.yaml`, the error goes to `data\proxy.log` and `proxyctl.ps1` exits with code 1.
 
 `install-autostart.ps1 -Watchdog` also registers a second task that calls `/health` every 5 minutes. It only looks at `status`, so a route without a key never triggers a restart. If the proxy task isn't running, the watchdog starts it and waits up to 60 seconds for `/health`. If the task is running but the proxy doesn't answer or reports `degraded`, the watchdog waits for 3 failed checks in a row, which is 15 minutes, then ends and starts the task. It restarts at most once every 30 minutes and shows at most one notification an hour. It keeps its counters in `data\watchdog.json` and logs to `data\watchdog.log`. `uninstall-autostart.ps1` removes both tasks.
 
@@ -293,7 +293,7 @@ When a request fails, Spokenly shows the proxy's error. The proxy never retries 
 |---|---|
 | `400` | the audio is missing, empty or unreadable |
 | `401` | Spokenly sent the wrong `PROXY_API_KEY` |
-| `403` | the request came from a web page, because it had an `Origin` header, or used a host name other than `127.0.0.1` or `localhost` |
+| `403` | the request came from a web page, because it had an `Origin` header, or used a host other than `127.0.0.1`, `localhost` or `[::1]` with the proxy's port |
 | `500` | an API key is missing from `.env`, or the proxy hit an internal error |
 | `501` | the route is set to `backend: native` but has no `native:` block |
 | `502` | the provider returned an error, which the message includes |
@@ -301,9 +301,9 @@ When a request fails, Spokenly shows the proxy's error. The proxy never retries 
 
 ## Privacy
 
-- The proxy listens on `127.0.0.1` and refuses to start on any other address. It rejects requests from web pages, so a site open in your browser can't spend your credits through it.
+- The proxy listens only on a configured loopback address and refuses to start on any other address. It rejects requests from web pages, so a site open in your browser can't spend your credits through it.
 - API keys stay in `.env`. The log redacts `Authorization` headers.
-- The proxy saves audio only when `save_audio` is on, when a request fails, or when a clip over 2 seconds comes back empty. Failed clips go to `data/failed` so `retry.py` can send them again. If the same audio fails again on the same route and language, the proxy reuses the saved file and marks it pending again. Updates from the proxy, retries and retention share a directory lock. The proxy deletes recordings, log rows and log files after 7 days.
+- The proxy saves audio only when `save_audio` is on, when a request fails, or when a clip over 2 seconds comes back empty. Failed clips go to `data/failed` so `retry.py` can send them again. If the same audio fails again on the same route and language, the proxy reuses the saved file and marks it pending again. Each such failure raises a generation number in the `.json` file, and a retry only changes the status when the generation it read before sending is still the current one. Updates from the proxy, retries and retention share a directory lock. The proxy deletes recordings, log rows and log files after 7 days.
 - Git ignores `.env`, `vocabulary.txt`, `data/` and your shootout recordings.
 
 ## Project layout

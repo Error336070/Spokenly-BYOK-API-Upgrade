@@ -2,6 +2,7 @@
 import base64
 import copy
 import json
+import math
 
 
 def set_path(d: dict, dotted: str, value) -> None:
@@ -91,14 +92,23 @@ def parse_azure_response(data: dict) -> dict:
     return {"text": text.strip(), "seconds": ms / 1000 if ms else None, "language": None}
 
 
+def _optional_nonnegative_number(value):
+    """Invalid optional diagnostics must not discard a valid transcript."""
+    value = _optional(value, (int, float))
+    try:
+        return value if value is not None and math.isfinite(value) and value >= 0 else None
+    except OverflowError:
+        return None
+
+
 def parse_openrouter_response(data: dict) -> dict:
     text = _transcript_field(data, "text", str)
-    usage = data.get("usage") or {}
+    usage = _optional(data.get("usage"), dict) or {}
     return {
         "text": text.strip(),
-        "cost": usage.get("cost"),
-        "seconds": usage.get("seconds"),
-        "language": data.get("language"),
+        "cost": _optional_nonnegative_number(usage.get("cost")),
+        "seconds": _optional_nonnegative_number(usage.get("seconds")),
+        "language": _optional(data.get("language"), str),
     }
 
 

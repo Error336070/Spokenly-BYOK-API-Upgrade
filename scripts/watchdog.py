@@ -19,7 +19,7 @@ from pathlib import Path
 from urllib.request import ProxyHandler, build_opener
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from proxy.config import ROOT, load_config  # noqa: E402
+from proxy.config import ROOT, load_config, local_server_url  # noqa: E402
 from proxy.notify import send_toast  # noqa: E402
 
 UNHEALTHY_CHECKS = 3
@@ -31,11 +31,11 @@ POLL_S = 2
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 
-def health(port: int) -> str:
+def health(port: int, host: str = "127.0.0.1") -> str:
     """"ok", "degraded" (answers, but a background task stopped) or "unreachable"."""
     try:
         # Ignore system HTTP proxies for the loopback health check.
-        with build_opener(ProxyHandler({})).open(f"http://127.0.0.1:{port}/health", timeout=3) as response:
+        with build_opener(ProxyHandler({})).open(f"{local_server_url(host, port)}/health", timeout=3) as response:
             return "ok" if json.load(response).get("status") == "ok" else "degraded"
     except Exception:
         return "unreachable"
@@ -88,7 +88,8 @@ def save_state(path: Path, state: dict) -> None:
     os.replace(tmp, path)
 
 
-def check_once(port: int, task: str, state: dict, now: float, toast=send_toast, sleep=time.sleep) -> str:
+def check_once(port: int, task: str, state: dict, now: float, host: str = "127.0.0.1",
+               toast=send_toast, sleep=time.sleep) -> str:
     """One watchdog run. Mutates state and returns what it did."""
     def notify(title, body):
         if now - state.get("last_toast", -1e12) >= TOAST_COOLDOWN_S:
@@ -96,9 +97,9 @@ def check_once(port: int, task: str, state: dict, now: float, toast=send_toast, 
             toast(title, body)
 
     def verified():
-        return wait_for(lambda: health(port) == "ok", VERIFY_S, sleep)
+        return wait_for(lambda: health(port, host) == "ok", VERIFY_S, sleep)
 
-    status = health(port)
+    status = health(port, host)
     if status == "ok":
         state["unhealthy_checks"] = 0
         return "healthy"
@@ -146,13 +147,14 @@ def main(argv=None):
     logging.basicConfig(filename=ROOT / "data" / "watchdog.log", level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(message)s")
     try:
-        port = load_config(args.config)["server"]["port"]
+        server = load_config(args.config)["server"]
+        host, port = server["host"], server["port"]
     except Exception:
         logging.exception("cannot read the config; not acting")  # the proxy can't start with it either
         return 1
     state_path = ROOT / "data" / "watchdog.json"
     state = load_state(state_path)
-    action = check_once(port, args.task, state, time.time())
+    action = check_once(port, args.task, state, time.time(), host=host)
     if action != "healthy":
         logging.info("watchdog: %s", action)
     save_state(state_path, state)

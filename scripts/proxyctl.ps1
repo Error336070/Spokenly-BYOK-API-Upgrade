@@ -4,16 +4,18 @@
 param(
     [Parameter(Mandatory)][ValidateSet("start", "stop", "restart", "status")][string]$Command,
     [string]$TaskName = "DictationProxy",
+    [ValidateSet("127.0.0.1", "localhost", "::1")][string]$Address = "127.0.0.1",
     [int]$Port = 8765,
     [int]$WaitSeconds = 20
 )
 $ErrorActionPreference = "Stop"
+$UriHost = if ($Address -eq "::1") { "[$Address]" } else { $Address }
 if (-not (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue)) {
     throw "No task named '$TaskName'. Run scripts\install-autostart.ps1 first."
 }
 
 function Get-Health {
-    try { return Invoke-RestMethod "http://127.0.0.1:$Port/health" -TimeoutSec 2 } catch { return $null }
+    try { return Invoke-RestMethod "http://${UriHost}:$Port/health" -TimeoutSec 2 } catch { return $null }
 }
 
 function Wait-Until([scriptblock]$Condition, [int]$Seconds) {
