@@ -200,13 +200,15 @@ These settings only change after a restart: `server.host`, `server.port`, `loggi
 | `notifications.consecutive_errors` | `3` | failures in a row before a notification |
 | `routes.<name>.backend` | `openrouter` | `openrouter` or `native` |
 | `credit.enabled` | `true` | check the OpenRouter key's remaining credit at startup and every `credit.interval_s` seconds (4 hours) |
-| `credit.low_usd` | `1` | notify when less than this many dollars remain |
+| `credit.low_usd` | `1` | notify when the OpenRouter key, or the AssemblyAI estimate, has less than this many dollars left |
 | `credit.assemblyai_hourly_rate_usd` | `null` | your AssemblyAI price per audio hour, for the estimate in `stats.py` |
 | `credit.assemblyai_starting_credit_usd` | `null` | your AssemblyAI credit at the start, for the same estimate |
 
 Each route has an `openrouter:` block and can have a `native:` block. They hold the model, any extra request fields, and how to send the vocabulary (`vocab_path`, `vocab_max`, `vocab_join`, `vocab_template`).
 
-The credit check reads the key's spending limit from OpenRouter's [GET /key](https://openrouter.ai/docs/api/api-reference/api-keys/get-current-api-key), which costs nothing. It only works if the key has a limit set. AssemblyAI has no balance endpoint, so `stats.py` estimates the credit used from the audio minutes in the request log. The estimate misses anything older than `retention_days` and any use outside the proxy.
+The credit check reads the key's spending limit from OpenRouter's [GET /key](https://openrouter.ai/docs/api/api-reference/api-keys/get-current-api-key), which costs nothing. It only works if the key has a limit set. AssemblyAI has no balance endpoint, so the proxy estimates the credit used from the audio minutes of successful native AssemblyAI requests and the configured hourly rate. Before retention deletes old log rows, it adds their counts and audio seconds to a `usage_rollup` table in the same transaction, so the estimate keeps covering them. That table holds no transcripts or audio. A database from an older version starts its totals at the oldest row still present. Usage deleted before that, use outside the proxy and failed requests are not counted. When a route uses AssemblyAI natively, the credit check also notifies you when the estimate falls below `credit.low_usd`.
+
+For a closer estimate, read the balance on the AssemblyAI dashboard and run `stats.py --calibrate-balance 12.34` with that number. The proxy then subtracts only the audio sent after that moment. The balance is stored in the local request log, not in `config.yaml`. `stats.py --clear-calibration` goes back to `assemblyai_starting_credit_usd`.
 
 Spokenly sends 16-bit WAV, which the proxy re-encodes to FLAC without loss. A 24-bit WAV also stays lossless. A floating-point WAV is converted to 24-bit FLAC.
 
@@ -231,7 +233,7 @@ Run each one with `.\.venv\Scripts\python.exe scripts\<name>.py`.
 
 | Command | Result |
 |---|---|
-| `stats.py` | latency, errors and cost per backend, audio minutes, estimated AssemblyAI credit, and how often a request opened a new connection after each length of pause |
+| `stats.py` | latency, errors and cost per backend, audio minutes, AssemblyAI request times and request ids, and how often a request opened a new connection after each length of pause. `--since` limits these to a period. The AssemblyAI credit estimate always covers all tracked requests. |
 | `retry.py [clip]` | sends the newest failed clip, or the one you name, through the proxy on its original route and prints the text. `--copy` also puts it on the clipboard. |
 | `vocab.py usage` | how often you say each term, and which terms are past a route's `vocab_max` |
 | `vocab.py suggest --min 2` | likely names, spelling variants, and phrases close to a vocabulary term but not exact, ranked by how many dictations contain them |
@@ -278,7 +280,7 @@ The proxy shows a Windows notification in these cases:
 - A route on the provider's own API is rejected. The notification says to switch that route back to `openrouter`, which is what you want when free credits run out.
 - Three requests in a row fail.
 - A config edit is invalid.
-- Your OpenRouter key has less than `credit.low_usd` left.
+- Your OpenRouter key, or the estimated AssemblyAI credit, has less than `credit.low_usd` left.
 - A background task such as the config watcher or keep-warm fails. `/health` then reports `degraded` and names the stopped task.
 
 You get at most one notification of each kind every 10 minutes.

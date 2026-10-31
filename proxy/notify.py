@@ -80,5 +80,10 @@ class Notifier:
     def low_credit(self, remaining: float) -> None:
         self._notify("low-credit", "OpenRouter key credit is low", f"Remaining key budget: ${remaining:.2f}.")
 
+    def low_assemblyai_credit(self, remaining: float) -> None:
+        self._notify("low-credit-assemblyai", "Estimated AssemblyAI credit is low",
+                     f"About ${remaining:.2f} left, estimated from logged audio. Check the AssemblyAI dashboard; "
+                     f"when credit runs out, set the route to backend: openrouter.")
+
     def config_error(self, message: str) -> None:
         self._notify("config", "config.yaml has an error; keeping the previous config", message)

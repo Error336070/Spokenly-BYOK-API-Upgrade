@@ -19,7 +19,7 @@ from .notify import Notifier
 from .retention import cleanup
 from .storage import RequestLog
 from .translate import format_response
-from .usage import estimated_cost
+from .usage import credit_estimate, estimated_cost, has_native_assemblyai_route
 
 log = logging.getLogger("proxy")
 _REDACT = {"authorization", "x-api-key", "api-key", "cookie"}
@@ -161,19 +161,33 @@ def create_app(cfg: dict, backends: dict | None = None, config_path: Path | None
                 background_failure("periodic_cleanup", e)
             await asyncio.sleep(6 * 3600)
 
+    async def check_openrouter_credit(settings):
+        backend = app.state.backends.get("openrouter")
+        if backend and hasattr(backend, "remaining_credit"):
+            remaining = await backend.remaining_credit()
+            if remaining is not None and remaining < settings.get("low_usd", 1):
+                notifier.low_credit(remaining)
+            elif remaining is None:
+                log.info("OpenRouter remaining key credit is unknown or unlimited")
+
+    async def check_assemblyai_estimate(settings):
+        """No balance API exists, so this uses the request log's tracked audio and the configured rate."""
+        if not has_native_assemblyai_route(cfg):
+            return
+        estimate = await db_call(credit_estimate, app.state.db, cfg)
+        remaining = estimate["remaining_usd"]
+        if remaining is not None and remaining < settings.get("low_usd", 1):
+            notifier.low_assemblyai_credit(remaining)
+
     async def check_credit():
         while True:
-            try:
-                settings = cfg.get("credit", {})
-                backend = app.state.backends.get("openrouter")
-                if settings.get("enabled", True) and backend and hasattr(backend, "remaining_credit"):
-                    remaining = await backend.remaining_credit()
-                    if remaining is not None and remaining < settings.get("low_usd", 1):
-                        notifier.low_credit(remaining)
-                    elif remaining is None:
-                        log.info("OpenRouter remaining key credit is unknown or unlimited")
-            except Exception as e:
-                background_failure("check_credit", e)
+            settings = cfg.get("credit", {})
+            if settings.get("enabled", True):
+                for check in (check_openrouter_credit, check_assemblyai_estimate):
+                    try:
+                        await check(settings)
+                    except Exception as e:
+                        background_failure("check_credit", e)
             await asyncio.sleep(cfg.get("credit", {}).get("interval_s", 14400))
 
     @asynccontextmanager

@@ -14,10 +14,10 @@ def test_usage_cost_coverage_and_native_credit_estimate():
     ]
     output = usage_summary(rows, {"credit": {"assemblyai_hourly_rate_usd": 0.4,
                                              "assemblyai_starting_credit_usd": 2}})
-    assert "native: 30.00 audio minutes; cost coverage 0/1" in output
-    assert "openrouter: 1.00 audio minutes; cost coverage 1/1" in output
-    assert "estimated credit used $0.2000; estimated remaining $1.8000" in output
-    assert "retained successful rows" in output
+    assert "native: 30.00 audio minutes; billed cost reported for 0/1" in output
+    assert "openrouter: 1.00 audio minutes; billed cost reported for 1/1" in output
+    assert "estimated used $0.2000 at $0.4/hour; estimated remaining $1.8000" in output
+    assert "1 failed requests are not counted" in output
 
 
 @pytest.mark.parametrize("backend,models", [
