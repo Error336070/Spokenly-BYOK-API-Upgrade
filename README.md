@@ -270,6 +270,8 @@ powershell -ExecutionPolicy Bypass -File scripts\uninstall-autostart.ps1   # rem
 
 Restart the proxy after you change `.env` or the code. The proxy writes its log to `data\proxy.log`, one file per day.
 
+`http://127.0.0.1:8765/health` reports two things. `status` is `ok` while the process and its background tasks run, and `degraded` when one of those tasks has stopped. `route_readiness` lists each route with `ready: false` and the missing variable's name when its active backend started without a key. A missing key doesn't change `status`, so the watchdog doesn't restart the proxy over it. The proxy also logs a warning for each such route at startup and after each config reload. It reads `.env` only at startup, so restart it after you add a key.
+
 If the proxy fails to start, for example because of an invalid `config.yaml`, the error goes to `data\proxy.log` and `proxyctl.ps1` exits with code 1.
 
 `install-autostart.ps1 -Watchdog` also registers a second task that calls `/health` every 5 minutes. If the check fails, it shows a notification and starts the proxy task. It logs to `data\watchdog.log`. `uninstall-autostart.ps1` removes both tasks.

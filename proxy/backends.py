@@ -164,6 +164,12 @@ class OpenRouterBackend:
         out["generation_id"] = headers.get("x-generation-id")
         return out
 
+    def readiness(self, route: dict) -> tuple[bool, str | None]:
+        """From the key this client started with; .env edits need a restart. Never includes the key."""
+        if not self.has_key:
+            return False, "OPENROUTER_API_KEY was not set when the proxy started"
+        return True, None
+
     async def generation(self, gen_id: str) -> dict | None:
         """GET /generation stats; None until OpenRouter has them."""
         try:
@@ -205,6 +211,27 @@ class NativeBackend:
             self.clients[provider] = httpx.AsyncClient(limits=_LIMITS, transport=self.transport)
         return self.clients[provider]
 
+    def _azure_endpoint(self) -> str:
+        return self.keys.get("azure_endpoint") or (
+            f"https://{self.keys['azure_region']}.api.cognitive.microsoft.com" if self.keys.get("azure_region") else "")
+
+    def readiness(self, route: dict) -> tuple[bool, str | None]:
+        """From the keys this backend started with; .env edits need a restart. Never includes key values."""
+        provider = (route.get("native") or {}).get("provider")
+        if not route.get("native"):
+            return False, "the route has no native: block"
+        if provider == "assemblyai":
+            if not self.keys.get("assemblyai"):
+                return False, "ASSEMBLYAI_API_KEY was not set when the proxy started"
+        elif provider == "azure":
+            missing = ([] if self.keys.get("azure") else ["AZURE_SPEECH_KEY"]) + (
+                [] if self._azure_endpoint() else ["AZURE_SPEECH_REGION or AZURE_SPEECH_ENDPOINT"])
+            if missing:
+                return False, f"{' and '.join(missing)} was not set when the proxy started"
+        else:
+            return False, f"native provider '{provider}' is not implemented"
+        return True, None
+
     def _settings(self, provider: str, cfg: dict | None = None) -> dict:
         return ((cfg if cfg is not None else self.cfg).get("native") or {}).get(provider) or {}
 
@@ -245,8 +272,7 @@ class NativeBackend:
 
     async def _azure(self, audio, fmt, n, definition, language, audio_duration_s, cfg):
         key = self.keys.get("azure")
-        endpoint = self.keys.get("azure_endpoint") or (
-            f"https://{self.keys['azure_region']}.api.cognitive.microsoft.com" if self.keys.get("azure_region") else "")
+        endpoint = self._azure_endpoint()
         if not key or not endpoint:
             raise BackendError("AZURE_SPEECH_KEY and AZURE_SPEECH_REGION (or AZURE_SPEECH_ENDPOINT) "
                                "must be set in the proxy's .env file", 500)

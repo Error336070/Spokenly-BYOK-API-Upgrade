@@ -35,6 +35,30 @@ def _ms(since: float) -> float:
     return round((time.perf_counter() - since) * 1000, 1)
 
 
+def route_readiness(routes: dict, backends: dict) -> dict:
+    """Per route: whether its active backend has the credentials it started with. ready is None if unknown."""
+    out = {}
+    for name, route in routes.items():
+        backend = backends.get(route["backend"])
+        if backend is None:
+            ready, problem = False, f"backend '{route['backend']}' is not available"
+        elif hasattr(backend, "readiness"):
+            ready, problem = backend.readiness(route)
+        else:
+            ready, problem = None, None
+        out[name] = {"backend": route["backend"], "ready": ready}
+        if problem:
+            out[name]["problem"] = problem
+    return out
+
+
+def warn_unready(routes: dict, backends: dict) -> None:
+    for name, r in route_readiness(routes, backends).items():
+        if r["ready"] is False:
+            log.warning("route %s (backend %s) will fail: %s. Set it in .env and restart the proxy.",
+                        name, r["backend"], r["problem"])
+
+
 def create_app(cfg: dict, backends: dict | None = None, config_path: Path | None = None,
                notifier: Notifier | None = None, watch_interval_s: float = 1.0) -> FastAPI:
     """cfg is mutated in place on hot reload, so everything holding it sees the new values."""
@@ -112,6 +136,7 @@ def create_app(cfg: dict, backends: dict | None = None, config_path: Path | None
         cfg.clear()
         cfg.update(new)
         log.info("config reloaded: %d routes, default %s", len(cfg["routes"]), cfg["default_route"])
+        warn_unready(cfg["routes"], app.state.backends)
 
     def watched_mtimes():
         """config.yaml plus the personal vocabulary file (which may not exist yet)."""
@@ -192,12 +217,8 @@ def create_app(cfg: dict, backends: dict | None = None, config_path: Path | None
 
     @asynccontextmanager
     async def lifespan(app):
-        if backends is None:
-            if not env("OPENROUTER_API_KEY"):
-                log.warning("OPENROUTER_API_KEY is not set in .env; openrouter routes will fail")
-            app.state.backends = build_backends(cfg, env)
-        else:
-            app.state.backends = backends
+        app.state.backends = build_backends(cfg, env) if backends is None else backends
+        warn_unready(cfg["routes"], app.state.backends)
         app.state.db = await asyncio.to_thread(RequestLog, cfg["logging"]["db_path"])
         app.state.notifier = notifier
         spawn(periodic_cleanup(), loop=True)
@@ -258,9 +279,12 @@ def create_app(cfg: dict, backends: dict | None = None, config_path: Path | None
 
     @app.get("/health")
     async def health():
+        # status is process and background-loop liveness only. A route missing its key is reported under
+        # route_readiness, so the watchdog doesn't restart the proxy over configuration it can't fix.
         return {"status": "ok" if all(not t.done() for t in loops.values()) else "degraded",
                 "routes": list(cfg["routes"]), "default_route": cfg["default_route"],
-                "background": {name: "stopped" if t.done() else "running" for name, t in loops.items()}}
+                "background": {name: "stopped" if t.done() else "running" for name, t in loops.items()},
+                "route_readiness": route_readiness(cfg["routes"], app.state.backends)}
 
     @app.get("/v1/models")
     async def models(request: Request):
