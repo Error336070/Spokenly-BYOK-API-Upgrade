@@ -293,7 +293,7 @@ When a request fails, Spokenly shows the proxy's error. The proxy never retries 
 |---|---|
 | `400` | the audio is missing, empty or unreadable |
 | `401` | Spokenly sent the wrong `PROXY_API_KEY` |
-| `403` | the request came from a web page, because it had an `Origin` header, or used a host name other than `127.0.0.1` or `localhost` |
+| `403` | the request came from a web page, because it had an `Origin` header, or used a host other than `127.0.0.1`, `localhost` or `[::1]` with the proxy's port |
 | `500` | an API key is missing from `.env`, or the proxy hit an internal error |
 | `501` | the route is set to `backend: native` but has no `native:` block |
 | `502` | the provider returned an error, which the message includes |

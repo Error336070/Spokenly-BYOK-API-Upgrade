@@ -2,6 +2,7 @@
 import base64
 import copy
 import json
+import math
 
 
 def set_path(d: dict, dotted: str, value) -> None:
@@ -91,14 +92,27 @@ def parse_azure_response(data: dict) -> dict:
     return {"text": text.strip(), "seconds": ms / 1000 if ms else None, "language": None}
 
 
+def _checked(value, kind, name):
+    """None stays None. Anything else must be the right type, so the proxy never compares or stores junk."""
+    if value is None:
+        return None
+    if kind is float:
+        if (isinstance(value, bool) or not isinstance(value, (int, float))
+                or not math.isfinite(value) or value < 0):
+            raise ValueError(f"{name} must be a non-negative number")
+    elif not isinstance(value, kind):
+        raise ValueError(f"{name} must be a {kind.__name__}")
+    return value
+
+
 def parse_openrouter_response(data: dict) -> dict:
     text = _transcript_field(data, "text", str)
-    usage = data.get("usage") or {}
+    usage = _checked(data.get("usage"), dict, "usage") or {}
     return {
         "text": text.strip(),
-        "cost": usage.get("cost"),
-        "seconds": usage.get("seconds"),
-        "language": data.get("language"),
+        "cost": _checked(usage.get("cost"), float, "usage.cost"),
+        "seconds": _checked(usage.get("seconds"), float, "usage.seconds"),
+        "language": _checked(data.get("language"), str, "language"),
     }
 
 

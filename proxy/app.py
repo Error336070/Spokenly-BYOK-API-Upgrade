@@ -32,6 +32,12 @@ def error_response(status: int, message: str, kind: str) -> JSONResponse:
                         status_code=status)
 
 
+def _local_hosts(port: int) -> set[str]:
+    """Host header values a local client can send: each loopback name with the port, or bare on port 80."""
+    names = ("127.0.0.1", "localhost", "[::1]")
+    return {f"{n}:{port}" for n in names} | (set(names) if port == 80 else set())
+
+
 def _ms(since: float) -> float:
     return round((time.perf_counter() - since) * 1000, 1)
 
@@ -243,9 +249,7 @@ def create_app(cfg: dict, backends: dict | None = None, config_path: Path | None
 
     @app.middleware("http")
     async def local_client_only(request: Request, call_next):
-        port = cfg["server"]["port"]
-        allowed = {f"127.0.0.1:{port}", f"localhost:{port}"}
-        if "origin" in request.headers or request.headers.get("host", "").lower() not in allowed:
+        if "origin" in request.headers or request.headers.get("host", "").lower() not in _local_hosts(cfg["server"]["port"]):
             return error_response(403, "requests require a local Host and no Origin header", "invalid_request_error")
         return await call_next(request)
 
@@ -304,21 +308,26 @@ def create_app(cfg: dict, backends: dict | None = None, config_path: Path | None
             form = await request.form()
         except Exception as e:
             raise HTTPException(400, f"could not parse multipart form: {e}")
-        upload = form.get("file")
-        if upload is None or isinstance(upload, str):
-            raise HTTPException(400, "missing 'file' in multipart form")
-        audio = await upload.read()
+        try:
+            # Copy out everything needed later, then close the form so its spooled temp files go away.
+            upload = form.get("file")
+            if upload is None or isinstance(upload, str):
+                raise HTTPException(400, "missing 'file' in multipart form")
+            audio = await upload.read()
+            filename, content_type = upload.filename or "", upload.content_type or ""
+            fields = {k: v for k, v in form.items() if k != "file" and isinstance(v, str)}
+        finally:
+            await form.close()
         if not audio:
             raise HTTPException(400, "uploaded audio file is empty")
         upload_read_ms = _ms(t0)
         state["last_request"] = time.monotonic()
-        fields = {k: v for k, v in form.items() if k != "file"}
 
         requested = str(fields.get("model") or "")
         route_name = requested if requested in settings["routes"] else settings["default_route"]
         route = settings["routes"][route_name]
         language = str(fields.get("language") or settings.get("language") or "") or None
-        fmt = sniff_format(audio, upload.filename or "", upload.content_type or "")
+        fmt = sniff_format(audio, filename, content_type)
         winfo = audio_info(audio, fmt)
 
         state["count"] += 1
@@ -329,7 +338,7 @@ def create_app(cfg: dict, backends: dict | None = None, config_path: Path | None
                             for k, v in request.headers.items()},
                 "content_type": request.headers.get("content-type"),
                 "fields": {k: str(v) for k, v in fields.items()},
-                "file": {"filename": upload.filename, "content_type": upload.content_type,
+                "file": {"filename": filename or None, "content_type": content_type or None,
                          "bytes": len(audio), "sniffed_format": fmt, "magic": audio[:12].hex(),
                          "audio_info": winfo},
             }
