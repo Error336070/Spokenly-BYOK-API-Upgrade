@@ -5,6 +5,7 @@ Usage: .venv\\Scripts\\python.exe scripts\\stats.py [--since 2026-10-29] [--erro
 """
 import argparse
 import json
+import math
 import statistics
 import sys
 from pathlib import Path
@@ -107,13 +108,21 @@ def calibrate(db, cfg, balance):
     return value
 
 
+def finite_balance(value):
+    balance = float(value)
+    if not math.isfinite(balance):
+        raise argparse.ArgumentTypeError("balance must be a finite dollar amount")
+    return balance
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--since", default="", help="ISO date/time prefix filter, e.g. 2026-10-29")
     ap.add_argument("--errors", type=int, default=5, help="show the last N errors")
-    ap.add_argument("--calibrate-balance", type=float, metavar="USD",
+    calibration = ap.add_mutually_exclusive_group()
+    calibration.add_argument("--calibrate-balance", type=finite_balance, metavar="USD",
                     help="store the balance the AssemblyAI dashboard shows now (kept only in the local request log)")
-    ap.add_argument("--clear-calibration", action="store_true",
+    calibration.add_argument("--clear-calibration", action="store_true",
                     help="remove the stored balance and use credit.assemblyai_starting_credit_usd again")
     args = ap.parse_args()
 

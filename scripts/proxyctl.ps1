@@ -57,7 +57,10 @@ function Start-Proxy {
 function Stop-Proxy {
     Stop-ScheduledTask -TaskName $TaskName
     # wait for the old process to leave the port, or the new one can't bind it
-    $null = Wait-Until { (Get-ScheduledTask -TaskName $TaskName).State -ne "Running" -and $null -eq (Get-Health) } 10
+    if (-not (Wait-Until { (Get-ScheduledTask -TaskName $TaskName).State -ne "Running" -and $null -eq (Get-Health) } 10)) {
+        Write-Host "proxy did not stop within 10 s; no new instance was started"
+        exit 1
+    }
 }
 
 switch ($Command) {

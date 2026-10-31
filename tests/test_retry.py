@@ -23,7 +23,7 @@ def mock_client(handler):
 
 def test_save_reuses_file_with_same_content(tmp_path):
     first = saved_clip(tmp_path)
-    again = saved_clip(tmp_path, route="assembly")
+    again = saved_clip(tmp_path)
     other = saved_clip(tmp_path, audio=make_wav(2))
     assert again == first and other != first
     meta = failed.read_sidecar(first)

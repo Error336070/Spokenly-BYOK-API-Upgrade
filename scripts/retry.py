@@ -30,6 +30,14 @@ def _error_text(response: httpx.Response) -> str:
         return response.text[:300] or response.reason_phrase
 
 
+def _record_result(path, error):
+    try:
+        failed.record_retry(path, error)
+    except (OSError, ValueError) as exc:
+        # A metadata failure must not discard a successfully recovered transcript.
+        print(f"warning: could not update recovery state for {path.name}: {exc}", file=sys.stderr)
+
+
 def retry_clip(path, cfg, client):
     """Send the clip on its saved route and return the text. Updates the sidecar's state."""
     metadata = failed.read_sidecar(path)
@@ -41,28 +49,29 @@ def retry_clip(path, cfg, client):
         audio = path.read_bytes()
     except OSError as e:
         raise RetryError(f"cannot read {path.name}: {e.strerror or e}") from e
-    now = datetime.now().isoformat(timespec="seconds")
-    attempts = metadata.get("retries", 0) + 1
     try:
         response = client.post("/v1/audio/transcriptions",
                                data={"model": metadata["route"], "language": metadata.get("language") or ""},
                                files={"file": (path.name, audio)})
     except httpx.HTTPError as e:
+        _record_result(path, type(e).__name__)
         raise RetryError(f"could not reach the proxy ({type(e).__name__}); is it running? "
                          f"Check with scripts\\proxyctl.ps1 status") from e
     if response.status_code != 200:
-        failed.update_sidecar(path, retries=attempts, last_retry_at=now,
-                              last_retry_error=f"HTTP {response.status_code}")
+        _record_result(path, f"HTTP {response.status_code}")
         raise RetryError(f"route '{metadata['route']}' failed again: HTTP {response.status_code}: "
                          f"{_error_text(response)}")
     try:
         text = response.json()["text"]
+        if not isinstance(text, str):
+            raise ValueError("transcript is not text")
     except (ValueError, KeyError, TypeError) as e:
+        _record_result(path, "unreadable response")
         raise RetryError("the proxy returned an unreadable response") from e
     if not text.strip():
-        failed.update_sidecar(path, retries=attempts, last_retry_at=now, last_retry_error="empty transcript")
+        _record_result(path, "empty transcript")
         raise RetryError(f"route '{metadata['route']}' returned an empty transcript again; the clip stays pending")
-    failed.update_sidecar(path, retries=attempts, last_retry_at=now, status="recovered", recovered_at=now)
+    _record_result(path, None)
     return text
 
 

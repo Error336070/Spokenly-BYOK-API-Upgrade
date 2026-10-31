@@ -1,5 +1,6 @@
 """Usage estimates for providers that report no cost, kept apart from billed costs."""
 import json
+import math
 
 
 def is_assemblyai(backend: str | None, provider_model: str | None) -> bool:
@@ -49,10 +50,15 @@ def read_calibration(db) -> dict | None:
     raw = db.get_meta(CALIBRATION_KEY)
     try:
         value = json.loads(raw) if raw else None
-        if value is not None:
-            float(value["balance_usd"]), float(value["tracked_seconds"]), str(value["at"])
-        return value
-    except (ValueError, TypeError, KeyError):
+        if not isinstance(value, dict) or not isinstance(value.get("at"), str):
+            return None
+        if any(type(value.get(key)) is bool for key in ("balance_usd", "tracked_seconds")):
+            return None
+        balance, seconds = float(value["balance_usd"]), float(value["tracked_seconds"])
+        if not math.isfinite(balance) or not math.isfinite(seconds) or seconds < 0:
+            return None
+        return {"balance_usd": balance, "tracked_seconds": seconds, "at": value["at"]}
+    except (ValueError, TypeError, KeyError, OverflowError):
         return None
 
 

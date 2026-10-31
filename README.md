@@ -270,7 +270,7 @@ powershell -ExecutionPolicy Bypass -File scripts\uninstall-autostart.ps1   # rem
 
 Restart the proxy after you change `.env` or the code. The proxy writes its log to `data\proxy.log`, one file per day.
 
-`http://127.0.0.1:8765/health` reports two things. `status` is `ok` while the process and its background tasks run, and `degraded` when one of those tasks has stopped. `route_readiness` lists each route with `ready: false` and the missing variable's name when its active backend started without a key. A missing key doesn't change `status`, so the watchdog doesn't restart the proxy over it. The proxy also logs a warning for each such route at startup and after each config reload. It reads `.env` only at startup, so restart it after you add a key.
+`http://127.0.0.1:8765/health` reports two things. `status` is `ok` while the process and its background tasks run, and `degraded` when one of those tasks has stopped. `route_readiness` lists each route with `ready: false` and the missing variable's name when its active backend started without a key. A missing key doesn't change `status`, so the watchdog doesn't restart the proxy over it. The proxy also logs a warning for each such route at startup and after each config reload. Provider clients keep their startup credentials, so restart the proxy after you add a key.
 
 `proxyctl.ps1 start` and `restart` wait up to 20 seconds for `/health` to answer instead of a fixed pause. `status` exits with code 0 when the proxy is up, 1 when it doesn't answer and 2 when it answers but a background task has stopped. It also lists routes that aren't ready. If the proxy fails to start, for example because of an invalid `config.yaml`, the error goes to `data\proxy.log` and `proxyctl.ps1` exits with code 1.
 
@@ -303,7 +303,7 @@ When a request fails, Spokenly shows the proxy's error. The proxy never retries 
 
 - The proxy listens on `127.0.0.1` and refuses to start on any other address. It rejects requests from web pages, so a site open in your browser can't spend your credits through it.
 - API keys stay in `.env`. The log redacts `Authorization` headers.
-- The proxy saves audio only when `save_audio` is on, when a request fails, or when a clip over 2 seconds comes back empty. Failed clips go to `data/failed` so `retry.py` can send them again. If the same audio fails again, the proxy reuses the saved file instead of writing a copy. The proxy deletes recordings, log rows and log files after 7 days.
+- The proxy saves audio only when `save_audio` is on, when a request fails, or when a clip over 2 seconds comes back empty. Failed clips go to `data/failed` so `retry.py` can send them again. If the same audio fails again on the same route and language, the proxy reuses the saved file and marks it pending again. Updates from the proxy, retries and retention share a directory lock. The proxy deletes recordings, log rows and log files after 7 days.
 - Git ignores `.env`, `vocabulary.txt`, `data/` and your shootout recordings.
 
 ## Project layout
