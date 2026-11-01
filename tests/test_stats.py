@@ -1,4 +1,5 @@
 from scripts.stats import main, usage_summary
+from contextlib import closing
 from proxy.storage import RequestLog
 import pytest
 
@@ -29,10 +30,10 @@ def test_connection_gaps_include_failed_requests(tmp_path, monkeypatch, capsys, 
     import sys
 
     path = str(tmp_path / "Zyntrabox.sqlite")
-    db = RequestLog(path)
-    for second, status, model in zip((0, 10, 20), ("ok", "error", "ok"), models):
-        db.insert({"ts": f"2026-01-01T00:00:{second:02}", "route": "assembly", "backend": backend,
-                   "provider_model": model, "status": status, "new_connection": True})
+    with closing(RequestLog(path)) as db:
+        for second, status, model in zip((0, 10, 20), ("ok", "error", "ok"), models):
+            db.insert({"ts": f"2026-01-01T00:00:{second:02}", "route": "assembly", "backend": backend,
+                       "provider_model": model, "status": status, "new_connection": True})
     monkeypatch.setattr(stats, "load_config", lambda: {"logging": {"db_path": path}})
     monkeypatch.setattr(sys, "argv", ["stats", "--errors", "0"])
     main()

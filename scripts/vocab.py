@@ -38,7 +38,12 @@ September October November December English""".split())
 
 
 def transcripts() -> list[str]:
-    with contextlib.closing(sqlite3.connect(load_config()["logging"]["db_path"])) as db:
+    path = Path(load_config()["logging"]["db_path"])
+    if not path.exists():
+        return []
+    with contextlib.closing(sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True)) as db:
+        if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='requests'").fetchone():
+            return []
         return [r[0] for r in db.execute("SELECT transcript FROM requests WHERE status='ok' AND transcript != ''")]
 
 

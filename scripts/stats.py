@@ -143,6 +143,8 @@ def main():
 
 
 def report(rows, cfg, estimate, errors_shown):
+    # Rows are inserted when requests finish; concurrent dictations can finish out of order.
+    rows = sorted(rows, key=lambda r: datetime.fromisoformat(r["ts"]))
     if not rows:
         print("no requests in the selected period\n\n" + usage_summary(rows, cfg, estimate))
         return

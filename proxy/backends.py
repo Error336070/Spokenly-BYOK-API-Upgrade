@@ -9,7 +9,7 @@ import httpx
 
 from .translate import (build_native_payload, build_openrouter_body, build_openrouter_options,
                         openrouter_form_fields, parse_assemblyai_response, parse_azure_response,
-                        parse_openrouter_response)
+                        parse_openrouter_response, parse_generation_response)
 
 
 class BackendError(Exception):
@@ -174,7 +174,7 @@ class OpenRouterBackend:
         """GET /generation stats; None until OpenRouter has them."""
         try:
             r = await self.client.get("/generation", params={"id": gen_id})
-            return r.json().get("data") if r.status_code == 200 else None
+            return parse_generation_response(r.json()) if r.status_code == 200 else None
         except (httpx.HTTPError, ValueError):
             return None
 

@@ -236,7 +236,7 @@ Run each one with `.\.venv\Scripts\python.exe scripts\<name>.py`.
 | `stats.py` | latency, errors and cost per backend, audio minutes, AssemblyAI request times and request ids, and how often a request opened a new connection after each length of pause. `--since` limits these to a period. The AssemblyAI credit estimate always covers all tracked requests. |
 | `retry.py [clip]` | sends the newest pending failed clip, or the one you name, through the proxy on its original route and prints the text. `--copy` also puts it on the clipboard. `--list` shows the pending clips. A nonempty transcript marks the clip recovered in its `.json` file, and the audio stays until retention deletes it. If the same audio fails again in the proxy while a retry is in flight, that retry's result does not mark the clip recovered, so the newer failure stays pending. A failed or empty retry leaves it pending, prints the reason and exits with code 1. |
 | `vocab.py usage` | how often you say each term, and which terms are past a route's `vocab_max` |
-| `vocab.py suggest --min 2` | likely names, spelling variants, and phrases close to a vocabulary term but not exact, ranked by how many dictations contain them |
+| `vocab.py suggest --min 2` | likely names, spelling variants, and phrases close to a vocabulary term but not exact, ranked by how many dictations contain them. Before the first logged request, it reports an empty history. |
 | `vocab.py add "Term"` | adds a term to `vocabulary.txt`, and warns when a route's `vocab_max` leaves the new term out. It uses the config named by `PROXY_CONFIG` when that is set. |
 | `shootout.py sheet` | prints the scripts to read aloud |
 | `shootout.py import` | labels your latest recordings as shootout clips |
@@ -255,6 +255,8 @@ Run each one with `.\.venv\Scripts\python.exe scripts\<name>.py`.
 4. Run `shootout.py run --repeat 3`. Add `--backend native` or `--routes assembly gpt` to narrow the run.
 
 The scorer reports word error rate, fillers kept, vocabulary terms missed and forbidden words or phrases, such as "Tuesday" in "Tuesday, no, Wednesday". It ignores case, punctuation, "3 PM" against "3 p.m." and "12%" against "12 percent". A forbidden phrase counts only as whole consecutive words, after the same normalization, so "fifteen" also matches "15". Results go to `shootout/results/`, with each clip's audio duration, the billed cost the provider reported and, for AssemblyAI on its own API, an estimated cost from the configured rate. `shootout.py rescore <csv>` scores a saved run again without calling any API.
+
+Imports check all source recordings and copy replacements into a temporary directory before replacing existing clips. Missing recordings or a failed copy leave the previous clips intact. Imports keep non-audio files, such as notes beside a clip. Runs reject unknown routes, unavailable backend settings and a repeat count below 1 before contacting providers. They warm only the selected backends.
 
 </details>
 
@@ -326,7 +328,9 @@ docs/             README graphics and the script that draws them
 tests/            translation and end-to-end tests against mocked providers
 ```
 
-Run the tests with `.\.venv\Scripts\python.exe -m pytest -q tests`. To redraw the graphics after changing the numbers in [`docs/build_assets.py`](docs/build_assets.py), run `.\.venv\Scripts\python.exe docs\build_assets.py`.
+Run the tests with `.\.venv\Scripts\python.exe -m pytest -q tests`. Tests use a temporary working directory and config root, ignore `.env` and inherited provider keys, and reject unmocked HTTPX requests. Pull requests run the suite on Windows with Python 3.10 and Linux with Python 3.13. The Windows job also exercises the PowerShell controller with stub commands.
+
+To redraw the graphics after changing the numbers in [`docs/build_assets.py`](docs/build_assets.py), run `.\.venv\Scripts\python.exe docs\build_assets.py`.
 
 ## FAQ
 

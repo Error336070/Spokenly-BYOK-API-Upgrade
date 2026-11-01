@@ -77,9 +77,9 @@ def _optional(value, kind):
 
 def parse_assemblyai_response(data: dict) -> dict:
     text = _transcript_field(data, "text", str)
-    ms = data.get("audio_duration_ms")
-    server_ms = _optional(data.get("request_time_ms"), (int, float))
-    return {"text": text.strip(), "seconds": ms / 1000 if ms else None, "language": None,
+    ms = _optional_nonnegative_number(data.get("audio_duration_ms"))
+    server_ms = _optional_nonnegative_number(data.get("request_time_ms"))
+    return {"text": text.strip(), "seconds": ms / 1000 if ms is not None else None, "language": None,
             # optional diagnostics: AssemblyAI's own request id and its reported request time
             "provider_request_id": _optional(data.get("session_id"), str),
             "provider_request_ms": float(server_ms) if server_ms is not None else None}
@@ -88,8 +88,8 @@ def parse_assemblyai_response(data: dict) -> dict:
 def parse_azure_response(data: dict) -> dict:
     phrases = _transcript_field(data, "combinedPhrases", list)
     text = " ".join(_transcript_field(p, "text", str).strip() for p in phrases)
-    ms = data.get("durationMilliseconds")
-    return {"text": text.strip(), "seconds": ms / 1000 if ms else None, "language": None}
+    ms = _optional_nonnegative_number(data.get("durationMilliseconds"))
+    return {"text": text.strip(), "seconds": ms / 1000 if ms is not None else None, "language": None}
 
 
 def _optional_nonnegative_number(value):
@@ -99,6 +99,15 @@ def _optional_nonnegative_number(value):
         return value if value is not None and math.isfinite(value) and value >= 0 else None
     except OverflowError:
         return None
+
+
+def parse_generation_response(data) -> dict | None:
+    """Keep only usable optional diagnostics from OpenRouter's generation endpoint."""
+    stats = data.get("data") if isinstance(data, dict) else None
+    if not isinstance(stats, dict) or not stats:
+        return None
+    return {"latency": _optional_nonnegative_number(stats.get("latency")),
+            "provider_name": _optional(stats.get("provider_name"), str)}
 
 
 def parse_openrouter_response(data: dict) -> dict:

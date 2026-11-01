@@ -53,7 +53,7 @@ def test_large_upload_form_is_closed(cfg, monkeypatch, status):  # noqa: F811
         del c
         gc.collect()
     assert made and all(u.file.closed for u in made)
-    assert not [w for w in caught if issubclass(w.category, ResourceWarning)]
+    assert not [str(w.message) for w in caught if issubclass(w.category, ResourceWarning)]
 
 
 def test_form_closed_when_file_field_is_missing(cfg, monkeypatch):  # noqa: F811

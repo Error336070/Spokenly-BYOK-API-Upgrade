@@ -174,6 +174,7 @@ def create_app(cfg: dict, backends: dict | None = None, config_path: Path | None
                 kw = cfg.get("keep_warm") or {}
                 interval = kw.get("interval_s", 120)
                 await asyncio.sleep(interval)
+                kw = cfg.get("keep_warm") or {}  # a reload may have replaced settings during the sleep
                 if not kw.get("enabled", True) or state.get("last_request") is None:
                     continue
                 if time.monotonic() - state["last_request"] > min(kw.get("active_window_min", 30), 30) * 60:
