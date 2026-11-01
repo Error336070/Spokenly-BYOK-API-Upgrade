@@ -13,10 +13,12 @@ import argparse
 import asyncio
 import contextlib
 import csv
+import os
 import shutil
 import sqlite3
 import statistics
 import sys
+import tempfile
 from datetime import datetime
 from pathlib import Path
 
@@ -49,34 +51,70 @@ def cmd_sheet(args):
 def cmd_import(args):
     scripts = load_scripts()
     ids = args.ids or list(scripts)
-    with contextlib.closing(sqlite3.connect(load_config()["logging"]["db_path"])) as db:
+    if len(set(ids)) != len(ids) or any(sid not in scripts or "/" in sid or "\\" in sid for sid in ids):
+        sys.exit("choose distinct script ids from shootout.py sheet")
+    if args.skip < 0:
+        sys.exit("--skip must be at least 0")
+    path = Path(load_config()["logging"]["db_path"])
+    if not path.is_file():
+        sys.exit("no request log found; record clips with logging.save_audio enabled first")
+    with contextlib.closing(sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True)) as db:
         rows = db.execute("SELECT clip_path, transcript FROM requests WHERE status = 'ok' AND clip_path IS NOT NULL "
                           "ORDER BY id DESC LIMIT ? OFFSET ?", (len(ids), args.skip)).fetchall()[::-1]
     if len(rows) < len(ids):
         sys.exit(f"need {len(ids)} saved clips, found {len(rows)}")
+    for clip, _ in rows:
+        if not Path(clip).is_file():
+            sys.exit(f"saved clip is missing: {clip}; record it again before importing")
     CLIPS.mkdir(parents=True, exist_ok=True)
-    for sid, (clip, transcript) in zip(ids, rows):
-        src = Path(clip)
-        for old in CLIPS.glob(f"{sid}.*"):
-            old.unlink()
-        shutil.copy2(src, CLIPS / f"{sid}{src.suffix}")
-        print(f"[{sid}] <- {src.name}\n  expected: {scripts[sid]['expected'][:100]}\n  got:      {(transcript or '')[:100]}\n")
+    # Stage every replacement first. A missing source or full disk must not erase an existing recording.
+    with tempfile.TemporaryDirectory(prefix=".import-", dir=CLIPS) as staging:
+        replacements = []
+        for sid, (clip, transcript) in zip(ids, rows):
+            src = Path(clip)
+            staged = Path(staging) / f"{sid}{src.suffix}"
+            shutil.copy2(src, staged)
+            replacements.append((sid, src, transcript, staged))
+        for sid, src, transcript, staged in replacements:
+            destination = CLIPS / staged.name
+            os.replace(staged, destination)
+            for old in CLIPS.iterdir():
+                if old != destination and old.stem == sid and old.suffix.lower() in AUDIO_EXT and old.is_file():
+                    old.unlink()
+            print(f"[{sid}] <- {src.name}\n  expected: {scripts[sid]['expected'][:100]}\n  got:      {(transcript or '')[:100]}\n")
     print("Check that each 'got' matches its script. If one is off, re-record it and run: import --ids <id>")
 
 
 def collect_clips(paths) -> list[Path]:
     out = []
+    if not paths and not CLIPS.is_dir():
+        return out
     for p in map(Path, paths or [CLIPS]):
-        out += sorted(f for f in p.iterdir() if f.suffix.lower() in AUDIO_EXT) if p.is_dir() else [p]
+        if p.is_dir():
+            out += sorted(f for f in p.iterdir() if f.is_file() and f.suffix.lower() in AUDIO_EXT)
+        elif p.is_file():
+            out.append(p)
+        else:
+            sys.exit(f"clip path does not exist: {p}")
     return out
 
 
 async def cmd_run(args):
     cfg = load_config()
     scripts = load_scripts()
+    if args.repeat < 1:
+        sys.exit("--repeat must be at least 1")
+    if args.backend is not None and args.backend not in ("native", "openrouter"):
+        sys.exit("--backend must be native or openrouter")
+    unknown = set(args.routes or []) - cfg["routes"].keys()
+    if unknown:
+        sys.exit(f"unknown routes: {', '.join(sorted(unknown))}")
     routes = {n: r for n, r in cfg["routes"].items() if not args.routes or n in args.routes}
     if args.backend:
         routes = {n: {**r, "backend": args.backend} for n, r in routes.items()}
+    for name, route in routes.items():
+        if route["backend"] not in route:
+            sys.exit(f"route '{name}' has no {route['backend']} settings")
     cfg["routes"] = routes  # so warmup opens connections for the routes this run actually uses
     clips = collect_clips(args.paths)
     if not clips:
@@ -91,8 +129,9 @@ async def cmd_run(args):
 
 async def run_clips(args, cfg, scripts, backends, routes, clips):
     # open the TLS connection before timing anything
-    for b in backends.values():
-        await b.warmup()
+    for name in dict.fromkeys(r["backend"] for r in routes.values()):
+        if name in backends:
+            await backends[name].warmup()
 
     results = []
     for clip in clips:
