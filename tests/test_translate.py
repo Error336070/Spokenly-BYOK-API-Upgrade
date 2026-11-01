@@ -4,6 +4,7 @@ import json
 import struct
 import time
 import wave
+from contextlib import closing
 
 import httpx
 import pytest
@@ -210,8 +211,9 @@ def test_storage_migrates_old_schema(tmp_path):
     import sqlite3
     from proxy.storage import RequestLog
     p = tmp_path / "old.sqlite"
-    sqlite3.connect(p).execute("CREATE TABLE requests (id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT NOT NULL)")
-    db = RequestLog(str(p))
-    rid = db.insert({"ts": "x", "or_provider": "Azure"})
-    db.update(rid, or_latency_ms=5)
-    assert db._conn.execute("SELECT or_provider, or_latency_ms FROM requests").fetchone() == ("Azure", 5)
+    with closing(sqlite3.connect(p)) as old:
+        old.execute("CREATE TABLE requests (id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT NOT NULL)")
+    with closing(RequestLog(str(p))) as db:
+        rid = db.insert({"ts": "x", "or_provider": "Azure"})
+        db.update(rid, or_latency_ms=5)
+        assert db._conn.execute("SELECT or_provider, or_latency_ms FROM requests").fetchone() == ("Azure", 5)

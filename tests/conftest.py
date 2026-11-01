@@ -1,5 +1,6 @@
 """Run tests with temporary defaults, no personal credentials and mocked HTTP only."""
 from pathlib import Path
+import sqlite3
 
 import httpx
 import pytest
@@ -31,3 +32,29 @@ def isolated_defaults(tmp_path, monkeypatch):
 
     monkeypatch.setattr(httpx.HTTPTransport, "handle_request", no_http)
     monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", no_async_http)
+
+
+@pytest.fixture(autouse=True)
+def closed_databases(monkeypatch):
+    """Attribute leaked SQLite connections to their test, including on Python before 3.13."""
+    connect = sqlite3.connect
+    connections = []
+
+    def tracked_connect(*args, **kwargs):
+        connection = connect(*args, **kwargs)
+        connections.append(connection)
+        return connection
+
+    monkeypatch.setattr(sqlite3, "connect", tracked_connect)
+    yield
+    leaked = 0
+    for connection in connections:
+        try:
+            connection.execute("SELECT 1")
+        except sqlite3.ProgrammingError as exc:
+            if "closed" not in str(exc):
+                raise
+        else:
+            connection.close()
+            leaked += 1
+    assert leaked == 0, f"test left {leaked} SQLite connection(s) open"

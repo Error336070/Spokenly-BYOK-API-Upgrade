@@ -1,6 +1,7 @@
 import os
 import sqlite3
 import time
+from contextlib import closing
 
 import httpx
 import yaml
@@ -112,12 +113,12 @@ def test_retention_deletes_old_clips_and_rows(tmp_path):
     old.write_bytes(b"x")
     new.write_bytes(b"x")
     os.utime(old, (time.time() - 8 * 86400,) * 2)
-    db = RequestLog(str(tmp_path / "db.sqlite"))
-    db.insert({"ts": "2000-01-01T00:00:00.000"})
-    db.insert({"ts": "2999-01-01T00:00:00.000"})
-    cleanup({"logging": {"retention_days": 7, "clips_dir": str(clips)}}, db)
-    assert not old.exists() and new.exists()
-    assert db._conn.execute("SELECT ts FROM requests").fetchall() == [("2999-01-01T00:00:00.000",)]
+    with closing(RequestLog(str(tmp_path / "db.sqlite"))) as db:
+        db.insert({"ts": "2000-01-01T00:00:00.000"})
+        db.insert({"ts": "2999-01-01T00:00:00.000"})
+        cleanup({"logging": {"retention_days": 7, "clips_dir": str(clips)}}, db)
+        assert not old.exists() and new.exists()
+        assert db._conn.execute("SELECT ts FROM requests").fetchall() == [("2999-01-01T00:00:00.000",)]
 
 
 def test_hot_reload_applies_valid_and_rejects_invalid(tmp_path):

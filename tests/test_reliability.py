@@ -1,6 +1,7 @@
 import asyncio
 import sqlite3
 import threading
+from contextlib import closing
 
 import httpx
 from fastapi.testclient import TestClient
@@ -34,6 +35,6 @@ def test_log_failure_preserves_transcript_off_loop(cfg, monkeypatch):
 
 
 def test_database_uses_wal(tmp_path):
-    db = RequestLog(str(tmp_path / "log.sqlite"))
-    assert db._conn.execute("PRAGMA journal_mode").fetchone() == ("wal",)
-    assert db._conn.execute("PRAGMA synchronous").fetchone() == (1,)
+    with closing(RequestLog(str(tmp_path / "log.sqlite"))) as db:
+        assert db._conn.execute("PRAGMA journal_mode").fetchone() == ("wal",)
+        assert db._conn.execute("PRAGMA synchronous").fetchone() == (1,)
