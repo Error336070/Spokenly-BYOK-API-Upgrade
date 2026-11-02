@@ -9,6 +9,7 @@ that lack a key (route_readiness) are a configuration problem and never trigger 
 State between runs is kept in data/watchdog.json. Notifications are limited to one per TOAST_COOLDOWN_S.
 """
 import argparse
+import hashlib
 import json
 import logging
 import os
@@ -29,6 +30,14 @@ VERIFY_S = 60
 END_WAIT_S = 30
 POLL_S = 2
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
+
+def pause_path(task: str) -> Path:
+    """A stop follows its task across port/config edits; other tasks have separate markers."""
+    # ASCII case normalization is identical in Python and Windows PowerShell, regardless of Unicode version.
+    key = task.translate(str.maketrans("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"))
+    name = hashlib.sha256(key.encode("utf-8")).hexdigest()
+    return ROOT / "data" / "watchdog-pauses" / f"{name}.stop"
 
 
 def health(port: int, host: str = "127.0.0.1") -> str:
@@ -91,13 +100,22 @@ def save_state(path: Path, state: dict) -> None:
 def check_once(port: int, task: str, state: dict, now: float, host: str = "127.0.0.1",
                toast=send_toast, sleep=time.sleep) -> str:
     """One watchdog run. Mutates state and returns what it did."""
+    def paused():
+        if pause_path(task).exists():
+            state["unhealthy_checks"] = 0
+            return True
+        return False
+
+    if paused():
+        return "paused"
+
     def notify(title, body):
         if now - state.get("last_toast", -1e12) >= TOAST_COOLDOWN_S:
             state["last_toast"] = now
             toast(title, body)
 
     def verified():
-        return wait_for(lambda: health(port, host) == "ok", VERIFY_S, sleep)
+        return wait_for(lambda: paused() or health(port, host) == "ok", VERIFY_S, sleep)
 
     status = health(port, host)
     if status == "ok":
@@ -110,10 +128,15 @@ def check_once(port: int, task: str, state: dict, now: float, host: str = "127.0
 
     if running != "Running":
         # Not running (or unreadable): starting is safe, the task ignores a second instance.
+        if paused():
+            return "paused"
         if not schtasks("/Run", task):
             notify("Dictation Proxy is down", "The watchdog could not start the task. See data/watchdog.log.")
             return "start failed"
-        if verified():
+        healthy = verified()
+        if paused():
+            return "paused"
+        if healthy:
             state["unhealthy_checks"] = 0
             logging.info("started the task; proxy healthy")
             return "started"
@@ -124,13 +147,20 @@ def check_once(port: int, task: str, state: dict, now: float, host: str = "127.0
         return "waiting"
     if now - state.get("last_restart", -1e12) < RESTART_COOLDOWN_S:
         return "restart cooldown"
+    if paused():
+        return "paused"
     state["last_restart"] = now
     logging.warning("task is running but the proxy is %s; restarting it", status)
     schtasks("/End", task)
     if not wait_for(lambda: task_state(task) != "Running", END_WAIT_S, sleep):
         notify("Dictation Proxy is stuck", "The watchdog could not stop the task. See data/watchdog.log.")
         return "end failed"
-    if schtasks("/Run", task) and verified():
+    if paused():
+        return "paused"
+    healthy = schtasks("/Run", task) and verified()
+    if paused():
+        return "paused"
+    if healthy:
         state["unhealthy_checks"] = 0
         notify("Dictation Proxy restarted", f"It was {status} for {UNHEALTHY_CHECKS} checks in a row.")
         return "restarted"
@@ -155,7 +185,7 @@ def main(argv=None):
     state_path = ROOT / "data" / "watchdog.json"
     state = load_state(state_path)
     action = check_once(port, args.task, state, time.time(), host=host)
-    if action != "healthy":
+    if action not in ("healthy", "paused"):
         logging.info("watchdog: %s", action)
     save_state(state_path, state)
     return 0

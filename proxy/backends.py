@@ -158,6 +158,7 @@ class OpenRouterBackend:
                                                 _OPENROUTER_HINTS, "POST", "/audio/transcriptions",
                                                 audio_duration_s=audio_duration_s, connection_info=connection_info, **kw)
         out = _parse(parse_openrouter_response, data, "OpenRouter", connection_info)
+        out["language"] = out.get("language") or body.get("language") or None
         out["new_connection"] = connection_info.get("new_connection")
         out["provider_latency_ms"] = latency
         out["provider_model"] = body["model"]
@@ -246,6 +247,13 @@ class NativeBackend:
             raise BackendError(f"native provider '{n.get('provider')}' is not implemented", 501)
         payload = build_native_payload(n, cfg.get("vocabulary") or [])
         out = await handler(audio, fmt, n, payload, language, audio_duration_s, cfg)
+        # The handler applies request defaults without replacing native route overrides.
+        selected = payload.get("language_codes" if n["provider"] == "assemblyai" else "locales")
+        if isinstance(selected, str):
+            selected = selected.split(",")
+        fallback = (selected[0].strip() or None
+                    if isinstance(selected, list) and len(selected) == 1 and isinstance(selected[0], str) else None)
+        out["language"] = out.get("language") or fallback
         out.setdefault("cost", None)
         return out
 

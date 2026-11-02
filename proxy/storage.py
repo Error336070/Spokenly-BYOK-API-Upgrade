@@ -21,7 +21,7 @@ _COLUMNS = [
     ("provider_latency_ms", "REAL"),   # our request to the provider, upload + processing + response
     ("or_latency_ms", "REAL"),         # OpenRouter-reported latency (filled in shortly after the request)
     ("or_provider", "TEXT"),           # provider OpenRouter actually routed to
-    ("total_latency_ms", "REAL"),      # whole request inside the proxy
+    ("total_latency_ms", "REAL"),      # legacy name: processing before the SQLite write, not response delivery
     ("new_connection", "INTEGER"),    # NULL when the transport exposes no trace events
     ("cost", "REAL"),                  # billed cost the provider reported (OpenRouter usage.cost)
     ("estimated_cost", "REAL"),        # our estimate from duration x configured rate; never a billed figure

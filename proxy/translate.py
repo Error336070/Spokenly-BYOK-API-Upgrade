@@ -143,7 +143,7 @@ def format_response(text: str, response_format: str | None, duration: float | No
     if fmt == "verbose_json":
         body = {
             "task": "transcribe",
-            "language": language or "english",
+            "language": language,
             "duration": dur,
             "text": text,
             "segments": [{"id": 0, "seek": 0, "start": 0.0, "end": dur, "text": text,

@@ -21,7 +21,10 @@ def test_controller_with_stubbed_task_and_http_cmdlets(
     wrapper = tmp_path / "Zyntrabox.ps1"
     log = tmp_path / "actions.txt"
     uri_log = tmp_path / "uris.txt"
-    controller = Path(__file__).resolve().parents[1] / "scripts" / "proxyctl.ps1"
+    source = Path(__file__).resolve().parents[1] / "scripts" / "proxyctl.ps1"
+    controller = tmp_path / "scripts" / "proxyctl.ps1"
+    controller.parent.mkdir()
+    shutil.copyfile(source, controller)
     wrapper.write_text(r'''
 param($Controller, $Scenario, $ActionLog, $UriLog, $Operation, $Address)
 $global:ProxyctlTestScenario = $Scenario
@@ -31,6 +34,8 @@ $global:ProxyctlTestState = 'Running'
 $global:ProxyctlTestHealthy = $Scenario -ne 'down'
 $global:ProxyctlTestClock = 0
 function Get-ScheduledTask {
+    param($TaskName)
+    if ($TaskName -like '*-Watchdog') { return $null }
     [pscustomobject]@{ State = $global:ProxyctlTestState }
 }
 function Stop-ScheduledTask {

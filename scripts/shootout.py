@@ -13,12 +13,14 @@ import argparse
 import asyncio
 import contextlib
 import csv
+import json
 import os
 import shutil
 import sqlite3
 import statistics
 import sys
 import tempfile
+import uuid
 from datetime import datetime
 from pathlib import Path
 
@@ -127,57 +129,85 @@ async def cmd_run(args):
             await b.aclose()
 
 
+def _save_run_state(path, state):
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    os.replace(temporary, path)
+
+
 async def run_clips(args, cfg, scripts, backends, routes, clips):
-    # open the TLS connection before timing anything
-    for name in dict.fromkeys(r["backend"] for r in routes.values()):
-        if name in backends:
-            await backends[name].warmup()
-
-    results = []
+    # Reject unsupported reference text before any paid transcription request.
     for clip in clips:
-        raw = clip.read_bytes()
-        source_fmt = sniff_format(raw, clip.name)
-        info = audio_info(raw, source_fmt)
-        duration = info and info["duration_s"]
-        audio, fmt = prepare_upload(raw, source_fmt, cfg)
-        s = scripts.get(clip.stem)
-        print(f"\n=== {clip.name}" + (f"  expected: {s['expected']}" if s else "  (no expected text)"))
-        for rep in range(args.repeat):
-            for name, route in routes.items():
-                backend = backends.get(route["backend"])
-                rec = {"clip": clip.name, "route": name, "backend": route["backend"], "rep": rep}
-                if backend is None:
-                    rec.update(error=f"backend '{route['backend']}' not available")
-                else:
-                    try:
-                        r = await backend.transcribe(audio, fmt, route, cfg.get("language"), audio_duration_s=duration)
-                        seconds = duration or r.get("seconds")
-                        rec.update(latency_ms=round(r["provider_latency_ms"]), cost=r.get("cost"), text=r["text"],
-                                   audio_duration_s=seconds,
-                                   estimated_cost=estimated_cost(route["backend"], r["provider_model"], seconds, cfg))
-                        if s:
-                            rec.update(score(s["expected"], r["text"], s.get("vocab", []), s.get("forbidden", [])))
-                    except BackendError as e:
-                        rec.update(error=str(e))
-                results.append(rec)
-                if "error" in rec:
-                    print(f"  {name:13} ERROR {rec['error'][:150]}")
-                else:
-                    sc = (f" WER {rec['wer']:5.1%} fill {rec['fillers']} vocab-miss {len(rec['vocab_missed'])}"
-                          f"{' forbidden ' + ','.join(rec['forbidden_found']) if rec['forbidden_found'] else ''}"
-                          if s else "")
-                    print(f"  {name:13} {rec['latency_ms']:5} ms{sc}\n      {rec['text']}")
-
-    print_summary(results)
-    out = SHOOTOUT / "results" / f"{datetime.now():%Y%m%d-%H%M%S}.csv"
+        if clip.stem in scripts:
+            score(scripts[clip.stem]["expected"], "")
+    out = SHOOTOUT / "results" / f"{datetime.now():%Y%m%d-%H%M%S}-{uuid.uuid4().hex}.csv"
     out.parent.mkdir(parents=True, exist_ok=True)
+    state_path = out.with_suffix(".json")
+    state = {"status": "running", "completed_requests": 0,
+             "started_at": datetime.now().isoformat(timespec="seconds")}
     cols = ["clip", "route", "backend", "rep", "audio_duration_s", "latency_ms", "cost", "estimated_cost", "wer",
             "word_errors", "ref_words", "fillers", "vocab_missed", "forbidden_found", "error", "text"]
-    with open(out, "w", newline="", encoding="utf-8") as f:
+    results = []
+    with open(out, "x", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, cols, extrasaction="ignore")
         w.writeheader()
-        for r in results:
-            w.writerow({k: (";".join(v) if isinstance(v, list) else v) for k, v in r.items()})
+        f.flush()
+        _save_run_state(state_path, state)
+        print(f"results are saved after each request to {out}")
+        try:
+            # Open the TLS connection before timing anything.
+            for name in dict.fromkeys(r["backend"] for r in routes.values()):
+                if name in backends:
+                    await backends[name].warmup()
+            for clip in clips:
+                raw = clip.read_bytes()
+                source_fmt = sniff_format(raw, clip.name)
+                info = audio_info(raw, source_fmt)
+                duration = info and info["duration_s"]
+                audio, fmt = prepare_upload(raw, source_fmt, cfg)
+                s = scripts.get(clip.stem)
+                print(f"\n=== {clip.name}" + (f"  expected: {s['expected']}" if s else "  (no expected text)"))
+                for rep in range(args.repeat):
+                    for name, route in routes.items():
+                        backend = backends.get(route["backend"])
+                        rec = {"clip": clip.name, "route": name, "backend": route["backend"], "rep": rep}
+                        if backend is None:
+                            rec.update(error=f"backend '{route['backend']}' not available")
+                        else:
+                            try:
+                                r = await backend.transcribe(audio, fmt, route, cfg.get("language"), audio_duration_s=duration)
+                                seconds = duration or r.get("seconds")
+                                rec.update(latency_ms=round(r["provider_latency_ms"]), cost=r.get("cost"), text=r["text"],
+                                           audio_duration_s=seconds,
+                                           estimated_cost=estimated_cost(route["backend"], r["provider_model"], seconds, cfg))
+                                if s:
+                                    rec.update(score(s["expected"], r["text"], s.get("vocab", []), s.get("forbidden", [])))
+                            except BackendError as e:
+                                rec.update(error=str(e))
+                        w.writerow({k: (";".join(v) if isinstance(v, list) else v) for k, v in rec.items()})
+                        f.flush()
+                        os.fsync(f.fileno())
+                        results.append(rec)
+                        state["completed_requests"] = len(results)
+                        _save_run_state(state_path, state)
+                        if "error" in rec:
+                            print(f"  {name:13} ERROR {rec['error'][:150]}")
+                        else:
+                            sc = (f" WER {rec['wer']:5.1%} fill {rec['fillers']} vocab-miss {len(rec['vocab_missed'])}"
+                                  f"{' forbidden ' + ','.join(rec['forbidden_found']) if rec['forbidden_found'] else ''}"
+                                  if s else "")
+                            print(f"  {name:13} {rec['latency_ms']:5} ms{sc}\n      {rec['text']}")
+        except BaseException as exc:
+            state["status"] = "interrupted" if isinstance(exc, (KeyboardInterrupt, asyncio.CancelledError)) else "failed"
+            state["finished_at"] = datetime.now().isoformat(timespec="seconds")
+            try:
+                _save_run_state(state_path, state)
+            except OSError as state_error:
+                print(f"could not update run state: {state_error}; completed rows remain in {out}", file=sys.stderr)
+            raise
+        state.update(status="completed", finished_at=datetime.now().isoformat(timespec="seconds"))
+        _save_run_state(state_path, state)
+    print_summary(results)
     print(f"\nresults saved to {out}")
 
 

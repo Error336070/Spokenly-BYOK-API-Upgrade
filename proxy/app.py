@@ -42,6 +42,12 @@ def _ms(since: float) -> float:
     return round((time.perf_counter() - since) * 1000, 1)
 
 
+def _timed_response(response: Response, since: float, db_ms: float) -> Response:
+    """Expose awaited logging and handler time, excluding response delivery, without another DB write."""
+    response.headers["Server-Timing"] = f"db;dur={db_ms:.1f}, handler;dur={_ms(since):.1f}"
+    return response
+
+
 def route_readiness(routes: dict, backends: dict) -> dict:
     """Per route: whether its active backend has the credentials it started with. ready is None if unknown."""
     out = {}
@@ -391,11 +397,14 @@ def create_app(cfg: dict, backends: dict | None = None, config_path: Path | None
             row["clip_path"] = await save_clip(audio, fmt, settings, failed_metadata)
             row.update(status="error", http_status=e.status, error=e.detail, total_latency_ms=_ms(t0),
                        new_connection=e.new_connection)
+            t_db = time.perf_counter()
             await db_write(app.state.db.insert, row)
+            db_ms = _ms(t_db)
             notifier.error(route_name, str(e), getattr(e, "upstream_status", None), route["backend"])
-            log.error("route %s failed after %.0f ms: %s | %s", route_name, row["total_latency_ms"], e, e.detail)
+            log.error("route %s failed after %.0f ms processing, %.0f ms logging: %s | %s",
+                      route_name, row["total_latency_ms"], db_ms, e, e.detail)
             kind = {504: "timeout", 501: "not_implemented", 500: "internal_error"}.get(e.status, "upstream_error")
-            return error_response(e.status, str(e), kind)
+            return _timed_response(error_response(e.status, str(e), kind), t0, db_ms)
 
         duration = row["audio_duration_s"] or result.get("seconds")
         row.update(
@@ -404,21 +413,24 @@ def create_app(cfg: dict, backends: dict | None = None, config_path: Path | None
             new_connection=result.get("new_connection"), cost=result.get("cost"), generation_id=result.get("generation_id"),
             provider_request_id=result.get("provider_request_id"), provider_request_ms=result.get("provider_request_ms"),
             estimated_cost=estimated_cost(route["backend"], result["provider_model"], duration, settings),
-            transcript=result["text"], total_latency_ms=_ms(t0),
+            transcript=result["text"],
         )
         if not result["text"] and (duration or 0) > 2:
             row["clip_path"] = await save_clip(audio, fmt, settings, failed_metadata)
+        row["total_latency_ms"] = _ms(t0)
+        t_db = time.perf_counter()
         row_id = await db_write(app.state.db.insert, row)
+        db_ms = _ms(t_db)
         notifier.success()
-        log.info("%s/%s %.1fs audio, read %.0f ms, provider %.0f ms, total %.0f ms, cost %s: %s",
+        log.info("%s/%s %.1fs audio, read %.0f ms, provider %.0f ms, processing %.0f ms, logging %.0f ms, cost %s: %s",
                  route_name, route["backend"], duration or 0, upload_read_ms, row["provider_latency_ms"],
-                 row["total_latency_ms"], row["cost"], result["text"][:120])
+                 row["total_latency_ms"], db_ms, row["cost"], result["text"][:120])
 
         if row_id is not None and row["generation_id"] and hasattr(backend, "generation"):
             spawn(fetch_generation_stats(backend, row_id, row["generation_id"], settings))
 
         body, media_type = format_response(result["text"], str(fields.get("response_format") or ""),
                                            duration, result.get("language"))
-        return Response(body, media_type=media_type)
+        return _timed_response(Response(body, media_type=media_type), t0, db_ms)
 
     return app

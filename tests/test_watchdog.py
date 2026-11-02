@@ -35,7 +35,8 @@ class World:
 
 
 @pytest.fixture(autouse=True)
-def fast(monkeypatch):
+def fast(monkeypatch, tmp_path):
+    monkeypatch.setattr(watchdog, "ROOT", tmp_path)
     monkeypatch.setattr(watchdog, "VERIFY_S", 0)
     monkeypatch.setattr(watchdog, "END_WAIT_S", 0)
 
