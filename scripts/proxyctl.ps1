@@ -9,6 +9,15 @@ param(
     [int]$WaitSeconds = 20
 )
 $ErrorActionPreference = "Stop"
+$Root = Split-Path -Parent $PSScriptRoot
+$PauseDirectory = Join-Path $Root 'data\watchdog-pauses'
+$TaskKey = [regex]::Replace($TaskName, '[A-Z]', { param($m) $m.Value.ToLowerInvariant() })
+$TaskHash = [System.Security.Cryptography.SHA256]::Create()
+try {
+    $PauseId = [System.BitConverter]::ToString($TaskHash.ComputeHash(
+        [System.Text.Encoding]::UTF8.GetBytes($TaskKey))).Replace('-', '').ToLowerInvariant()
+} finally { $TaskHash.Dispose() }
+$PauseFile = Join-Path $PauseDirectory "$PauseId.stop"
 $UriHost = if ($Address -eq "::1") { "[$Address]" } else { $Address }
 if (-not (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue)) {
     throw "No task named '$TaskName'. Run scripts\install-autostart.ps1 first."
@@ -50,6 +59,7 @@ function Show-Status {
 }
 
 function Start-Proxy {
+    if (Test-Path -LiteralPath $PauseFile) { Remove-Item -LiteralPath $PauseFile }
     Start-ScheduledTask -TaskName $TaskName
     if (-not (Wait-Until { $null -ne (Get-Health) } $WaitSeconds)) {
         Write-Host "no answer from /health after $WaitSeconds s"
@@ -57,6 +67,18 @@ function Start-Proxy {
 }
 
 function Stop-Proxy {
+    # Persist intent before stopping. An empty file is sufficient, so creation is atomic.
+    [System.IO.Directory]::CreateDirectory($PauseDirectory) | Out-Null
+    $pause = [System.IO.File]::Open($PauseFile, [System.IO.FileMode]::OpenOrCreate,
+        [System.IO.FileAccess]::Write, [System.IO.FileShare]::Read)
+    $pause.Dispose()
+    $watchdog = Get-ScheduledTask -TaskName "$TaskName-Watchdog" -ErrorAction SilentlyContinue
+    if ($watchdog -and $watchdog.State -eq 'Running') {
+        Stop-ScheduledTask -TaskName "$TaskName-Watchdog"
+        if (-not (Wait-Until { (Get-ScheduledTask -TaskName "$TaskName-Watchdog").State -ne 'Running' } 10)) {
+            throw 'Watchdog did not stop; proxy stop was not attempted.'
+        }
+    }
     Stop-ScheduledTask -TaskName $TaskName
     # wait for the old process to leave the port, or the new one can't bind it
     if (-not (Wait-Until { (Get-ScheduledTask -TaskName $TaskName).State -ne "Running" -and $null -eq (Get-Health) } 10)) {
@@ -67,7 +89,7 @@ function Stop-Proxy {
 
 switch ($Command) {
     "start"   { Start-Proxy; Show-Status }
-    "stop"    { Stop-Proxy; Write-Host "stopped" }
+    "stop"    { Stop-Proxy; Write-Host "stopped; watchdog recovery paused until start or restart" }
     "restart" { Stop-Proxy; Start-Proxy; Show-Status }
     "status"  { Show-Status }
 }

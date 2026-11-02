@@ -150,7 +150,7 @@ def report(rows, cfg, estimate, errors_shown):
         return
 
     print(f"{'route':13} {'n':>4} {'err':>4} {'audio p50':>9} {'prov p50':>8} {'prov p90':>8} "
-          f"{'OR p50':>7} {'overhead':>8} {'total p50':>9} {'total p90':>9} {'cost/req':>9}  provider")
+          f"{'OR p50':>7} {'overhead':>8} {'pre-log p50':>11} {'pre-log p90':>11} {'cost/req':>9}  provider")
     for route in sorted({r["route"] for r in rows}):
         rs = [r for r in rows if r["route"] == route]
         ok = [r for r in rs if r["status"] == "ok"]
@@ -164,11 +164,13 @@ def report(rows, cfg, estimate, errors_shown):
               f"{fmt(pct([r['provider_latency_ms'] for r in ok], 90)):>8} "
               f"{fmt(pct([r['or_latency_ms'] for r in ok], 50)):>7} "
               f"{fmt(pct(overhead, 50)):>8} "
-              f"{fmt(pct([r['total_latency_ms'] for r in ok], 50)):>9} "
-              f"{fmt(pct([r['total_latency_ms'] for r in ok], 90)):>9} "
+              f"{fmt(pct([r['total_latency_ms'] for r in ok], 50)):>11} "
+              f"{fmt(pct([r['total_latency_ms'] for r in ok], 90)):>11} "
               f"{('$%.5f' % statistics.mean(costs)) if costs else '-':>9}  {', '.join(providers)}")
     print("\nprov = provider round trip (upload + processing); OR = OpenRouter-reported latency;")
     print("overhead = prov - OR (network/upload/routing outside the model). All in ms.")
+    print("pre-log = processing before request logging; excludes the SQLite write and response delivery. "
+          "Stored under the legacy total_latency_ms column.")
 
     print("\nRecent provider requests, with seconds since the previous request start in that backend/provider:")
     previous, connections = {}, []

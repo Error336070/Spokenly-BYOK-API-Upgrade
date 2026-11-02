@@ -90,6 +90,8 @@ Add a custom OpenAI-compatible transcription provider in Spokenly with these val
 4. The transcript goes back to Spokenly in the format it asked for. The proxy supports `json`, `text`, `verbose_json`, `srt` and `vtt`.
 5. The proxy logs the request in a worker thread. If the log write fails, Spokenly still gets the transcript. For OpenRouter requests it also fetches OpenRouter's own latency figure in the background, so you can separate model time from network time.
 
+The request log's historical `total_latency_ms` column measures processing before the SQLite write. `stats.py` labels it `pre-log` to make that boundary clear. Successful transcriptions and handled provider errors also return `Server-Timing`: `db` measures the awaited logging call, and `handler` includes it through response construction. Neither measures delivery to Spokenly. For `verbose_json`, language comes from the provider when available, otherwise the single language sent upstream, including native route overrides. An unknown language or multiple candidate languages stay `null`.
+
 ## Benchmarks
 
 I measured everything on my own push-to-talk dictation against EU endpoints in October 2026. Your numbers will depend on your location and connection.
@@ -256,6 +258,10 @@ Run each one with `.\.venv\Scripts\python.exe scripts\<name>.py`.
 
 The scorer reports word error rate, fillers kept, vocabulary terms missed and forbidden words or phrases, such as "Tuesday" in "Tuesday, no, Wednesday". It ignores case, punctuation, "3 PM" against "3 p.m." and "12%" against "12 percent". A forbidden phrase counts only as whole consecutive words, after the same normalization, so "fifteen" also matches "15". Results go to `shootout/results/`, with each clip's audio duration, the billed cost the provider reported and, for AssemblyAI on its own API, an estimated cost from the configured rate. `shootout.py rescore <csv>` scores a saved run again without calling any API.
 
+Scoring keeps Unicode letters and combining marks instead of dropping non-ASCII text. It still splits on spaces and punctuation, so it is not a language-specific word segmenter for scripts such as Chinese. English number and filler normalization remains English-specific. A nonempty reference with no word tokens is rejected before transcription.
+
+Each run gets a unique CSV, and every completed result is flushed to disk immediately. A matching JSON file records `running`, `completed`, `interrupted`, or `failed`. Ctrl+C preserves completed rows; after a forced process exit, the state may still say `running`. Interrupted runs are not resumed automatically. Inspect or rescore the saved CSV before deciding which requests to repeat.
+
 Imports check all source recordings and copy replacements into a temporary directory before replacing existing clips. Missing recordings or a failed copy leave the previous clips intact. Imports keep non-audio files, such as notes beside a clip. Runs reject unknown routes, unavailable backend settings and a repeat count below 1 before contacting providers. They warm only the selected backends.
 
 </details>
@@ -275,6 +281,8 @@ Restart the proxy after you change `.env` or the code. The proxy writes its log 
 `http://127.0.0.1:8765/health` reports two things. `status` is `ok` while the process and its background tasks run, and `degraded` when one of those tasks has stopped. `route_readiness` lists each route with `ready: false` and the missing variable's name when its active backend started without a key. A missing key doesn't change `status`, so the watchdog doesn't restart the proxy over it. The proxy also logs a warning for each such route at startup and after each config reload. Provider clients keep their startup credentials, so restart the proxy after you add a key.
 
 `proxyctl.ps1 start` and `restart` wait up to 20 seconds for `/health` to answer instead of a fixed pause. `status` exits with code 0 when the proxy is up, 1 when it doesn't answer and 2 when it answers but a background task has stopped. It also lists routes that aren't ready. Pass `-Address ::1` and the configured `-Port` when the server uses a nondefault loopback address or port. If the proxy fails to start, for example because of an invalid `config.yaml`, the error goes to `data\proxy.log` and `proxyctl.ps1` exits with code 1.
+
+An explicit `stop` writes a task-specific pause marker under `data\watchdog-pauses` before stopping the proxy and any in-flight watchdog task. Scheduled watchdog checks then leave that task stopped, including after a port change. Explicit `start` or `restart` clears its marker. Other task names have independent markers. This pauses watchdog recovery; it does not disable the proxy task's existing logon trigger.
 
 `install-autostart.ps1 -Watchdog` also registers a second task that calls `/health` every 5 minutes. It only looks at `status`, so a route without a key never triggers a restart. If the proxy task isn't running, the watchdog starts it and waits up to 60 seconds for `/health`. If the task is running but the proxy doesn't answer or reports `degraded`, the watchdog waits for 3 failed checks in a row, which is 15 minutes, then ends and starts the task. It restarts at most once every 30 minutes and shows at most one notification an hour. It keeps its counters in `data\watchdog.json` and logs to `data\watchdog.log`. `uninstall-autostart.ps1` removes both tasks.
 
