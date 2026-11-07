@@ -12,6 +12,8 @@ from .config import ROOT, load_config
 
 
 def main():
+    if sys.version_info < (3, 12):
+        raise SystemExit("Dictation Proxy needs Python 3.12 or newer; recreate .venv (see README)")
     (ROOT / "data").mkdir(parents=True, exist_ok=True)
     handler = TimedRotatingFileHandler(ROOT / "data" / "proxy.log", when="midnight",
                                         backupCount=0, encoding="utf-8")

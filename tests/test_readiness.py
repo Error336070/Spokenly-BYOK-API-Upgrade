@@ -6,7 +6,9 @@ from fastapi.testclient import TestClient
 
 from proxy.app import create_app, route_readiness
 from proxy.backends import NativeBackend, OpenRouterBackend
-from tests.test_translate import cfg, make_wav  # noqa: F401
+import os
+import time
+import copy
 
 SECRET = "secret-Zyntrabox-key"
 
@@ -15,7 +17,7 @@ def health(c):
     return c.get("/health").json()
 
 
-def test_missing_native_key_is_unready_but_process_is_healthy(cfg, caplog):  # noqa: F811
+def test_missing_native_key_is_unready_but_process_is_healthy(cfg, caplog):
     transport = httpx.MockTransport(lambda r: httpx.Response(200, json={"text": "x"}))
     backends = {"openrouter": OpenRouterBackend(cfg, SECRET, transport), "native": NativeBackend(cfg, {}, transport)}
     with caplog.at_level(logging.WARNING, logger="proxy"):
@@ -37,14 +39,14 @@ def test_missing_native_key_is_unready_but_process_is_healthy(cfg, caplog):  # n
     ({"azure": "k", "azure_endpoint": "https://zyntrabox.invalid"}, None),
     ({"azure": "k", "azure_region": "Zyntrabox"}, None),
 ])
-def test_azure_requirements(cfg, keys, problem):  # noqa: F811
+def test_azure_requirements(cfg, keys, problem):
     route = {**cfg["routes"]["mai-clean"], "backend": "native"}
     ready, got = NativeBackend(cfg, keys).readiness(route)
     assert ready is (problem is None)
     assert (got or "").startswith(problem or "")
 
 
-def test_backend_switch_changes_readiness(cfg):  # noqa: F811
+def test_backend_switch_changes_readiness(cfg):
     backends = {"openrouter": OpenRouterBackend(cfg, ""), "native": NativeBackend(cfg, {"assemblyai": "k"})}
     assert route_readiness(cfg["routes"], backends)["assembly"]["ready"] is True
     cfg["routes"]["assembly"]["backend"] = "openrouter"
@@ -57,7 +59,7 @@ def test_backend_switch_changes_readiness(cfg):  # noqa: F811
     assert "not implemented" in route_readiness(cfg["routes"], backends)["assembly"]["problem"]
 
 
-def test_readiness_uses_startup_credentials_not_later_env(cfg, monkeypatch):  # noqa: F811
+def test_readiness_uses_startup_credentials_not_later_env(cfg, monkeypatch):
     for name in ("OPENROUTER_API_KEY", "ASSEMBLYAI_API_KEY", "AZURE_SPEECH_KEY", "AZURE_SPEECH_REGION",
                  "AZURE_SPEECH_ENDPOINT"):
         monkeypatch.setenv(name, "")
@@ -73,9 +75,38 @@ def test_readiness_uses_startup_credentials_not_later_env(cfg, monkeypatch):  # 
         assert SECRET not in c.get("/health").text
 
 
-def test_unknown_backend_readiness_is_none(cfg):  # noqa: F811
+def test_unknown_backend_readiness_is_none(cfg):
     class Fake:
         async def aclose(self):
             pass
 
     assert route_readiness(cfg["routes"], {"openrouter": Fake()})["gpt"] == {"backend": "openrouter", "ready": None}
+
+
+def test_hot_reload_reports_newly_unready_route(cfg, tmp_path, monkeypatch, caplog):
+    import proxy.app as app_module
+    from proxy.backends import NativeBackend, OpenRouterBackend
+    from fastapi.testclient import TestClient
+
+    cfg["notifications"]["enabled"] = False
+    cfg["vocabulary_file"] = None
+    changed = copy.deepcopy(cfg)
+    changed["routes"]["assembly"]["backend"] = "openrouter"
+    config_path = tmp_path / "Zyntrabox.yaml"
+    config_path.write_text("first", encoding="utf-8")
+    monkeypatch.setattr(app_module, "load_config", lambda path: changed)
+    backends = {"openrouter": OpenRouterBackend(cfg, ""), "native": NativeBackend(cfg, {"assemblyai": "fake"})}
+    with caplog.at_level(logging.WARNING, logger="proxy"):
+        with TestClient(app_module.create_app(cfg, backends=backends, config_path=config_path,
+                                             watch_interval_s=0.01), base_url="http://127.0.0.1:18765") as client:
+            assert client.get("/health").json()["route_readiness"]["assembly"]["ready"] is True
+            time.sleep(0.05)
+            caplog.clear()
+            os.utime(config_path, (time.time() + 2,) * 2)
+            deadline = time.monotonic() + 3
+            while cfg["routes"]["assembly"]["backend"] != "openrouter" and time.monotonic() < deadline:
+                time.sleep(0.01)
+            health = client.get("/health").json()
+            assert health["status"] == "ok"
+            assert health["route_readiness"]["assembly"]["ready"] is False
+            assert "route assembly (backend openrouter) will fail" in caplog.text

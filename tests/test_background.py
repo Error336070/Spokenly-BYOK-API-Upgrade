@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 from proxy.app import create_app
 from proxy.backends import OpenRouterBackend
 from proxy.notify import Notifier
-from tests.test_translate import cfg, make_wav  # noqa: F401
+from tests.helpers import make_wav
 
 
 def wait_until(pred, timeout=2):
@@ -52,3 +52,62 @@ def test_unexpected_task_failure_logs_and_notifies(cfg):
                               notifier=Notifier(cfg, send=lambda t, b: sent.append(t))), base_url="http://127.0.0.1:18765") as c:
         c.post("/v1/audio/transcriptions", files={"file": ("a.wav", make_wav())})
         assert wait_until(lambda: any("Background task failed" in t for t in sent))
+
+
+def test_keep_warm_uses_replaced_settings_after_sleep(cfg):
+    class Backend:
+        def __init__(self):
+            self.warmups = 0
+
+        async def transcribe(self, *args, **kwargs):
+            return {"text": "Zyntrabox", "provider_latency_ms": 1, "provider_model": "test"}
+
+        async def warmup(self):
+            self.warmups += 1
+
+        async def aclose(self):
+            pass
+
+    backend = Backend()
+    cfg["keep_warm"] = {"enabled": True, "interval_s": 0.15, "active_window_min": 30}
+    with TestClient(create_app(cfg, backends={"openrouter": backend}), base_url="http://127.0.0.1:18765") as client:
+        client.post("/v1/audio/transcriptions", files={"file": ("x.wav", make_wav())})
+        deadline = time.monotonic() + 2
+        while backend.warmups == 0 and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert backend.warmups > 0
+        cfg["keep_warm"] = {"enabled": False, "interval_s": 0.15, "active_window_min": 30}
+        before = backend.warmups
+        time.sleep(0.35)
+        assert backend.warmups == before
+
+
+def test_keep_warm_only_while_active(cfg):
+    class FakeBackend:
+        def __init__(self):
+            self.warmups = 0
+
+        async def transcribe(self, *a, **kw):
+            return {"text": "hi", "provider_latency_ms": 1, "provider_model": "x"}
+
+        async def warmup(self):
+            self.warmups += 1
+
+        async def aclose(self):
+            pass
+
+    b = FakeBackend()
+    cfg["keep_warm"] = {"enabled": True, "interval_s": 0.05, "active_window_min": 30}
+    with TestClient(create_app(cfg, backends={"openrouter": b}), base_url="http://127.0.0.1:18765") as c:
+        time.sleep(0.2)
+        assert b.warmups == 0                      # no dictation yet: stay quiet
+        c.post("/v1/audio/transcriptions", files={"file": ("a.wav", make_wav(), "audio/wav")})
+        deadline = time.monotonic() + 2
+        while b.warmups < 2 and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert b.warmups >= 2                      # active: pings
+        cfg["keep_warm"]["active_window_min"] = 0  # window passed (hot-reload style change)
+        time.sleep(0.1)
+        n = b.warmups
+        time.sleep(0.2)
+        assert b.warmups == n                      # idle: pings stop

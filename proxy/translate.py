@@ -4,6 +4,9 @@ import copy
 import json
 import math
 
+# X-AAI-Model when a native AssemblyAI route names none.
+ASSEMBLYAI_DEFAULT_MODEL = "universal-3-5-pro"
+
 
 def set_path(d: dict, dotted: str, value) -> None:
     keys = dotted.split(".")

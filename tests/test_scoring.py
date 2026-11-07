@@ -1,4 +1,5 @@
 from proxy.scoring import normalize, score
+import pytest
 
 
 def test_normalize_ignores_format_differences():
@@ -23,3 +24,18 @@ def test_score_counts_errors_fillers_vocab_forbidden():
 def test_vocab_hyphen_and_space_equivalent():
     assert score("MAI-Transcribe", "MAI Transcribe", vocab=["MAI-Transcribe"])["vocab_missed"] == []
     assert score("x", "Switch Spokenly to Voxtral.", vocab=["Voxtral", "Spokenly"])["vocab_missed"] == []
+
+
+def test_unicode_scoring_preserves_words_vocabulary_and_forbidden_phrases():
+    result = score("東京", "大阪", vocab=["東京"], forbidden=["大阪"])
+    assert result == {"wer": 1.0, "word_errors": 1, "ref_words": 1, "fillers": 0,
+                      "vocab_missed": ["東京"], "forbidden_found": ["大阪"]}
+    assert normalize("CAFÉ café cafe\u0301 किताब") == ["café", "café", "café", "किताब"]
+    assert score("Café", "cafe\u0301", vocab=["CAFÉ"])["vocab_missed"] == []
+    assert score("Ångström-coil", "Ångström coil")["wer"] == 0
+
+
+@pytest.mark.parametrize("reference", ["...", "😀"])
+def test_unsupported_nonempty_reference_is_rejected(reference):
+    with pytest.raises(ValueError, match="reference must contain word tokens"):
+        score(reference, "")

@@ -1,6 +1,7 @@
 from argparse import Namespace
 
 from scripts import vocab
+from proxy.storage import RequestLog
 
 
 def test_fuzzy_variants_count_distinct_dictations(monkeypatch, capsys):
@@ -49,3 +50,21 @@ def test_misheard_term_remains_when_exact_term_also_occurs(monkeypatch, capsys):
     monkeypatch.setattr(vocab, "transcripts", lambda: ["Use Zyntrabox Pro and Zintrabox Pro."] * 2)
     vocab.cmd_suggest(Namespace(min=2))
     assert "Zintrabox Pro (2) may be Zyntrabox Pro" in capsys.readouterr().out
+
+
+def test_vocab_before_first_request_is_empty_without_creating_database(tmp_path, monkeypatch):
+    path = tmp_path / "missing" / "requests.sqlite"
+    monkeypatch.setattr(vocab, "load_config", lambda: {"logging": {"db_path": str(path)}})
+    assert vocab.transcripts() == []
+    assert not path.exists()
+
+
+def test_vocab_reads_database_with_uri_characters(tmp_path, monkeypatch):
+    path = tmp_path / "Zyntrabox #1.sqlite"
+    db = RequestLog(str(path))
+    try:
+        db.insert({"ts": "2026-01-01", "status": "ok", "transcript": "Zyntrabox"})
+    finally:
+        db.close()
+    monkeypatch.setattr(vocab, "load_config", lambda: {"logging": {"db_path": str(path)}})
+    assert vocab.transcripts() == ["Zyntrabox"]

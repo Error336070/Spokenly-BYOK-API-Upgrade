@@ -4,8 +4,11 @@ import sqlite3
 
 import httpx
 import pytest
+import yaml
 
 from proxy import config
+from scripts import shootout
+from tests.helpers import SCRIPTS
 
 
 _CONFIG = (Path(__file__).resolve().parents[1] / "config.yaml").read_text(encoding="utf-8")
@@ -58,3 +61,26 @@ def closed_databases(monkeypatch):
             connection.close()
             leaked += 1
     assert leaked == 0, f"test left {leaked} SQLite connection(s) open"
+
+
+@pytest.fixture
+def cfg(tmp_path):
+    c = yaml.safe_load(_CONFIG)
+    c["credit"] = {"enabled": False}
+    c["server"]["port"] = 18765
+    c["logging"].update(db_path=str(tmp_path / "db.sqlite"), clips_dir=str(tmp_path / "clips"))
+    c["logging"]["failed_clips_dir"] = str(tmp_path / "failed")
+    # these tests inspect the JSON/WAV request shape; test_upload.py covers FLAC + multipart
+    c["openrouter"]["multipart"] = False
+    c["upload"] = {"flac": False}
+    return c
+
+
+@pytest.fixture
+def shoot(cfg, tmp_path, monkeypatch):
+    monkeypatch.setattr(shootout, "SHOOTOUT", tmp_path / "shootout")
+    monkeypatch.setattr(shootout, "CLIPS", tmp_path / "shootout" / "clips")
+    monkeypatch.setattr(shootout, "load_scripts", lambda: SCRIPTS)
+    monkeypatch.setattr(shootout, "load_config", lambda: cfg)
+    cfg["credit"] = {"enabled": False, "assemblyai_hourly_rate_usd": 0.36}
+    return cfg

@@ -8,7 +8,7 @@ from pathlib import Path
 import yaml
 from dotenv import load_dotenv
 
-from .translate import build_native_payload, build_openrouter_options
+from .translate import ASSEMBLYAI_DEFAULT_MODEL, build_native_payload, build_openrouter_options
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -190,7 +190,7 @@ def validate(cfg) -> None:
                         raise ValueError("unknown native provider")
                     body = build_native_payload(block, vocab or ["Zyntrabox"])
                     if block["provider"] == "assemblyai":
-                        model = block.get("model", "universal-3-5-pro")
+                        model = block.get("model", ASSEMBLYAI_DEFAULT_MODEL)
                         if not model or not model.isascii() or any(ord(c) < 32 or ord(c) == 127 for c in model):
                             raise ValueError("native model must be a nonempty ASCII header value")
                     elif "enhancedMode" in body and not isinstance(body["enhancedMode"], dict):

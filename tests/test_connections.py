@@ -6,7 +6,7 @@ import pytest
 from proxy.backends import NativeBackend, OpenRouterBackend
 from proxy.app import create_app
 from fastapi.testclient import TestClient
-from tests.test_translate import cfg, make_wav  # noqa: F401
+from tests.helpers import make_wav
 
 
 @pytest.mark.parametrize("connect", [True, False])

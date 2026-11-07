@@ -15,11 +15,10 @@ from proxy.app import create_app
 from proxy.backends import NativeBackend, OpenRouterBackend
 from proxy.scoring import score
 from scripts import shootout
-from tests.test_translate import cfg, make_wav  # noqa: F401
-
-SCRIPTS = {"mid1": {"id": "mid1", "kind": "x", "read": "x", "expected": "Meet Wednesday at fifteen.",
-                    "forbidden": ["next Tuesday", "MAI-Transcribe", "fifteen"]}}
-
+from tests.helpers import SCRIPTS, make_wav
+from datetime import datetime
+import json
+from types import SimpleNamespace
 
 @pytest.mark.parametrize("hypothesis,found", [
     ("Meet next Tuesday, no, Wednesday at 15.", ["next Tuesday", "fifteen"]),
@@ -36,14 +35,6 @@ def test_empty_forbidden_phrase_never_matches():
     assert score("x", "anything", forbidden=["", "..."])["forbidden_found"] == []
 
 
-@pytest.fixture
-def shoot(cfg, tmp_path, monkeypatch):  # noqa: F811
-    monkeypatch.setattr(shootout, "SHOOTOUT", tmp_path / "shootout")
-    monkeypatch.setattr(shootout, "CLIPS", tmp_path / "shootout" / "clips")
-    monkeypatch.setattr(shootout, "load_scripts", lambda: SCRIPTS)
-    monkeypatch.setattr(shootout, "load_config", lambda: cfg)
-    cfg["credit"] = {"enabled": False, "assemblyai_hourly_rate_usd": 0.36}
-    return cfg
 
 
 def results_csv(tmp_path):
@@ -138,7 +129,7 @@ def flac(seconds):
     return out.getvalue()
 
 
-def test_flac_duration_scales_deadline_and_saves_long_empty(cfg):  # noqa: F811
+def test_flac_duration_scales_deadline_and_saves_long_empty(cfg):
     timeouts = []
     backend = OpenRouterBackend(cfg, "k", httpx.MockTransport(
         lambda r: timeouts.append(r.extensions["timeout"]["read"]) or httpx.Response(200, json={"text": ""})))
@@ -154,7 +145,7 @@ def test_flac_duration_scales_deadline_and_saves_long_empty(cfg):  # noqa: F811
 
 @pytest.mark.parametrize("name,audio", [("x.m4a", b"\0\0\0\x20ftypM4A " + b"\0" * 40),
                                         ("x.flac", b"fLaC" + b"\0" * 40)])
-def test_unsupported_or_malformed_formats_keep_unknown_duration(cfg, name, audio):  # noqa: F811
+def test_unsupported_or_malformed_formats_keep_unknown_duration(cfg, name, audio):
     timeouts = []
     backend = OpenRouterBackend(cfg, "k", httpx.MockTransport(
         lambda r: timeouts.append(r.extensions["timeout"]["read"]) or httpx.Response(200, json={"text": "x"})))
@@ -163,3 +154,160 @@ def test_unsupported_or_malformed_formats_keep_unknown_duration(cfg, name, audio
         assert r.status_code == 200
         assert c.app.state.db._conn.execute("SELECT audio_duration_s FROM requests").fetchone() == (None,)
     assert timeouts == [15]
+
+
+def _import_database(shoot, paths):
+    db = sqlite3.connect(shoot["logging"]["db_path"])
+    with db:
+        db.execute("CREATE TABLE requests (id INTEGER PRIMARY KEY, status TEXT, clip_path TEXT, transcript TEXT)")
+        db.executemany("INSERT INTO requests (status, clip_path) VALUES ('ok', ?)", [(str(p),) for p in paths])
+    db.close()
+
+
+def test_import_missing_source_preserves_existing_clip(shoot, tmp_path):
+    shootout.CLIPS.mkdir(parents=True)
+    old = shootout.CLIPS / "mid1.wav"
+    old.write_bytes(b"original")
+    _import_database(shoot, [tmp_path / "missing.wav"])
+    with pytest.raises(SystemExit, match="missing"):
+        shootout.cmd_import(Namespace(ids=["mid1"], skip=0))
+    assert old.read_bytes() == b"original"
+
+
+def test_import_staging_failure_preserves_existing_clip(shoot, tmp_path, monkeypatch):
+    shootout.CLIPS.mkdir(parents=True)
+    old = shootout.CLIPS / "mid1.wav"
+    old.write_bytes(b"original")
+    source = tmp_path / "new.wav"
+    source.write_bytes(b"replacement")
+    _import_database(shoot, [source])
+
+    def fail_copy(*args):
+        raise OSError("Zyntrabox full disk")
+
+    monkeypatch.setattr(shootout.shutil, "copy2", fail_copy)
+    with pytest.raises(OSError, match="full disk"):
+        shootout.cmd_import(Namespace(ids=["mid1"], skip=0))
+    assert old.read_bytes() == b"original"
+
+
+def test_import_only_replaces_audio(shoot, tmp_path):
+    shootout.CLIPS.mkdir(parents=True)
+    old = shootout.CLIPS / "mid1.mp3"
+    old.write_bytes(b"old audio")
+    notes = shootout.CLIPS / "mid1.txt"
+    notes.write_text("Zyntrabox notes", encoding="utf-8")
+    source = tmp_path / "new.wav"
+    source.write_bytes(b"new audio")
+    _import_database(shoot, [source])
+    shootout.cmd_import(Namespace(ids=["mid1"], skip=0))
+    assert not old.exists()
+    assert (shootout.CLIPS / "mid1.wav").read_bytes() == b"new audio"
+    assert notes.read_text(encoding="utf-8") == "Zyntrabox notes"
+
+
+@pytest.mark.parametrize("ids", [["unknown"], ["mid1", "mid1"], ["../outside"]])
+def test_import_rejects_bad_ids_before_reading_database(shoot, ids):
+    with pytest.raises(SystemExit):
+        shootout.cmd_import(Namespace(ids=ids, skip=0))
+    assert not Path(shoot["logging"]["db_path"]).exists()
+
+
+@pytest.mark.parametrize("overrides", [{"routes": ["typo"]}, {"repeat": 0}, {"backend": "typo"},
+                                      {"routes": ["gpt"], "backend": "native"}, {"paths": []}])
+def test_run_rejects_bad_selection_before_building_clients(shoot, tmp_path, monkeypatch, overrides):
+    source = tmp_path / "clip.wav"
+    source.write_bytes(b"audio")
+    monkeypatch.setattr(shootout, "build_backends", lambda *args: pytest.fail("built clients for invalid input"))
+    args = Namespace(**({"paths": [str(source)], "routes": ["assembly"], "repeat": 1, "backend": None} | overrides))
+    with pytest.raises(SystemExit):
+        asyncio.run(shootout.cmd_run(args))
+
+
+def test_run_warms_only_selected_backend(shoot, tmp_path, monkeypatch):
+    source = tmp_path / "clip.wav"
+    source.write_bytes(b"audio")
+    warmed = []
+
+    class Backend:
+        def __init__(self, name):
+            self.name = name
+
+        async def warmup(self):
+            warmed.append(self.name)
+
+        async def transcribe(self, *args, **kwargs):
+            return {"text": "Zyntrabox", "provider_latency_ms": 1, "provider_model": "test"}
+
+        async def aclose(self):
+            pass
+
+    monkeypatch.setattr(shootout, "build_backends", lambda *args: {n: Backend(n) for n in ("native", "openrouter")})
+    asyncio.run(shootout.cmd_run(Namespace(paths=[str(source)], routes=["gpt"], backend=None, repeat=1)))
+    assert warmed == ["openrouter"]
+
+
+def _shootout_inputs(tmp_path, monkeypatch):
+    monkeypatch.setattr(shootout, "SHOOTOUT", tmp_path)
+    monkeypatch.setattr(shootout, "audio_info", lambda *a: None)
+    monkeypatch.setattr(shootout, "prepare_upload", lambda *a: (b"synthetic audio", "wav"))
+    clip = tmp_path / "synthetic.wav"
+    clip.write_bytes(b"synthetic audio")
+    return clip, {"synthetic": {"backend": "openrouter"}}
+
+
+@pytest.mark.parametrize("exception,status", [(asyncio.CancelledError, "interrupted"), (RuntimeError, "failed")])
+def test_shootout_keeps_completed_requests_when_run_is_interrupted(tmp_path, monkeypatch, exception, status):
+    clip, routes = _shootout_inputs(tmp_path, monkeypatch)
+
+    class Backend:
+        calls = 0
+
+        async def warmup(self):
+            pass
+
+        async def transcribe(self, *args, **kwargs):
+            self.calls += 1
+            if self.calls == 2:
+                output = next((tmp_path / "results").glob("*.csv"))
+                with output.open(encoding="utf-8", newline="") as f:
+                    assert list(csv.DictReader(f))[0]["text"] == "Zyntrabox"
+                raise exception()
+            return {"text": "Zyntrabox", "provider_latency_ms": 7, "provider_model": "synthetic", "cost": 0.01}
+
+    with pytest.raises(exception):
+        asyncio.run(shootout.run_clips(SimpleNamespace(repeat=2), {}, {}, {"openrouter": Backend()}, routes, [clip]))
+    output = next((tmp_path / "results").glob("*.csv"))
+    with output.open(encoding="utf-8", newline="") as f:
+        rows = list(csv.DictReader(f))
+    assert len(rows) == 1 and rows[0]["cost"] == "0.01" and rows[0]["rep"] == "0"
+    state = json.loads(output.with_suffix(".json").read_text())
+    assert state["status"] == status and state["completed_requests"] == 1
+
+
+def test_completed_shootouts_do_not_overwrite_same_second_runs(tmp_path, monkeypatch):
+    clip, routes = _shootout_inputs(tmp_path, monkeypatch)
+    monkeypatch.setattr(shootout, "datetime", SimpleNamespace(now=lambda: datetime(2026, 1, 1)))
+
+    class Backend:
+        async def warmup(self):
+            pass
+
+        async def transcribe(self, *a, **kw):
+            return {"text": "Zyntrabox", "provider_latency_ms": 1, "provider_model": "synthetic"}
+
+    for _ in range(2):
+        asyncio.run(shootout.run_clips(SimpleNamespace(repeat=1), {}, {}, {"openrouter": Backend()}, routes, [clip]))
+    outputs = list((tmp_path / "results").glob("*.csv"))
+    assert len(outputs) == 2
+    for output in outputs:
+        state = json.loads(output.with_suffix(".json").read_text())
+        assert state["status"] == "completed" and state["completed_requests"] == 1
+
+
+def test_invalid_reference_stops_shootout_before_provider_calls(tmp_path, monkeypatch):
+    clip, routes = _shootout_inputs(tmp_path, monkeypatch)
+    with pytest.raises(ValueError, match="reference must contain word tokens"):
+        asyncio.run(shootout.run_clips(SimpleNamespace(repeat=1), {}, {"synthetic": {"expected": "😀"}},
+                                      {"openrouter": object()}, routes, [clip]))
+    assert not (tmp_path / "results").exists()

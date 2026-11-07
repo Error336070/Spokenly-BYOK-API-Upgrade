@@ -1,0 +1,16 @@
+[project]
+name = "dictation-proxy"
+version = "0"
+requires-python = ">=3.12"
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+# pyflakes and pycodestyle errors: unused imports and names, undefined names, syntax problems.
+select = ["E", "F"]
+ignore = ["E501", "E731"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

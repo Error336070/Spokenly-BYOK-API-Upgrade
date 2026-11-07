@@ -1,0 +1,5 @@
+# Tests and checks. Install with: pip install -r requirements-dev.txt -c constraints.txt
+-r requirements.txt
+pytest>=8.0
+pytest-cov>=6.0
+ruff>=0.9

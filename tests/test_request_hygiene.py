@@ -10,7 +10,7 @@ from starlette.datastructures import UploadFile
 from proxy.app import create_app
 from proxy.backends import OpenRouterBackend
 from proxy.translate import parse_openrouter_response
-from tests.test_translate import cfg, make_wav  # noqa: F401
+from tests.helpers import make_wav
 
 
 def _track_uploads(monkeypatch):
@@ -27,7 +27,7 @@ def _track_uploads(monkeypatch):
 
 
 @pytest.mark.parametrize("status", [200, 502])
-def test_large_upload_form_is_closed(cfg, monkeypatch, status):  # noqa: F811
+def test_large_upload_form_is_closed(cfg, monkeypatch, status):
     cfg["logging"]["save_audio"] = False
     cfg["notifications"]["enabled"] = False
     made = _track_uploads(monkeypatch)
@@ -56,7 +56,7 @@ def test_large_upload_form_is_closed(cfg, monkeypatch, status):  # noqa: F811
     assert not [str(w.message) for w in caught if issubclass(w.category, ResourceWarning)]
 
 
-def test_form_closed_when_file_field_is_missing(cfg, monkeypatch):  # noqa: F811
+def test_form_closed_when_file_field_is_missing(cfg, monkeypatch):
     made = _track_uploads(monkeypatch)
     with TestClient(create_app(cfg, backends={}), base_url="http://127.0.0.1:18765") as c:
         r = c.post("/v1/audio/transcriptions", files={"other": ("x.wav", make_wav(1), "audio/wav")})
@@ -85,7 +85,7 @@ def test_parse_openrouter_accepts_valid_optional_fields():
 
 
 @pytest.mark.parametrize("text,known_duration", [("Zyntrabox works", False), ("", False), ("", True)])
-def test_malformed_metadata_preserves_transcript_and_logging(cfg, text, known_duration):  # noqa: F811
+def test_malformed_metadata_preserves_transcript_and_logging(cfg, text, known_duration):
     cfg["logging"]["save_audio"] = False
     cfg["notifications"]["enabled"] = False
     backend = OpenRouterBackend(cfg, "k", transport=httpx.MockTransport(
@@ -113,13 +113,13 @@ def test_bad_required_transcript_remains_an_error(payload):
         parse_openrouter_response(payload)
 
 
-def _client(cfg, port):  # noqa: F811
+def _client(cfg, port):
     cfg["server"]["port"] = port
     return TestClient(create_app(cfg, backends={}), base_url=f"http://127.0.0.1:{port}")
 
 
 @pytest.mark.parametrize("host", ["[::1]:18765", "LOCALHOST:18765", "127.0.0.1:18765"])
-def test_loopback_hosts_are_accepted(cfg, host):  # noqa: F811
+def test_loopback_hosts_are_accepted(cfg, host):
     with _client(cfg, 18765) as c:
         assert c.get("/v1/models", headers={"host": host}).status_code == 200
 
@@ -129,7 +129,7 @@ def test_loopback_hosts_are_accepted(cfg, host):  # noqa: F811
     {"host": "[::1]:18765", "origin": "http://[::1]:18765"}, {"host": "127.0.0.2:18765"},
     {"host": "localhost.example.invalid:18765"}, {"host": "[::ffff:7f00:1]:18765"},
 ])
-def test_ipv6_and_wrong_hosts_still_rejected(cfg, headers):  # noqa: F811
+def test_ipv6_and_wrong_hosts_still_rejected(cfg, headers):
     with _client(cfg, 18765) as c:
         assert c.get("/v1/models", headers=headers).status_code == 403
 
@@ -138,6 +138,15 @@ def test_ipv6_and_wrong_hosts_still_rejected(cfg, headers):  # noqa: F811
     ("localhost", 200), ("127.0.0.1", 200), ("[::1]", 200), ("localhost:80", 200),
     ("example.invalid", 403), ("localhost:8080", 403),
 ])
-def test_port_80_accepts_host_without_port(cfg, host, status):  # noqa: F811
+def test_port_80_accepts_host_without_port(cfg, host, status):
     with _client(cfg, 80) as c:
         assert c.get("/v1/models", headers={"host": host}).status_code == status
+
+
+@pytest.mark.parametrize("auth,status", [
+    ("Bearer Zyntrabox-key", 200), ("Bearer Zyntrabox-kez", 401), ("", 401), ("Bearer Zyntrabox-key-2", 401)])
+def test_proxy_api_key(cfg, monkeypatch, auth, status):
+    monkeypatch.setenv("PROXY_API_KEY", "Zyntrabox-key")
+    with TestClient(create_app(cfg, backends={}), base_url="http://127.0.0.1:18765") as c:
+        r = c.get("/v1/models", headers={"Authorization": auth} if auth else {})
+    assert r.status_code == status

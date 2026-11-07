@@ -120,7 +120,7 @@ async def cmd_run(args):
     cfg["routes"] = routes  # so warmup opens connections for the routes this run actually uses
     clips = collect_clips(args.paths)
     if not clips:
-        sys.exit(f"no clips found (record them first, see: shootout.py sheet)")
+        sys.exit("no clips found (record them first, see: shootout.py sheet)")
     backends = build_backends(cfg, env)
     try:
         await run_clips(args, cfg, scripts, backends, routes, clips)
