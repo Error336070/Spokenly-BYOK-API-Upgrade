@@ -10,8 +10,8 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request
 import httpx
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
 
 from . import failed as failed_clips
@@ -233,7 +233,7 @@ def create_app(cfg: dict, backends: dict | None = None, config_path: Path | None
                     try:
                         await check(settings)
                     except BackendError as e:
-                        if not isinstance(e.__cause__, httpx.TransportError):
+                        if not isinstance(e.__cause__, (httpx.TransportError, TimeoutError)):
                             background_failure("check_credit", e)
                             continue
                         # Unreachable, not broken: log it and try again soon instead of notifying.
