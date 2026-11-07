@@ -1,54 +1,18 @@
-import json
 import sqlite3
 import time
-from contextlib import closing
 from types import SimpleNamespace
-
 import httpx
 import pytest
 from fastapi.testclient import TestClient
-
 from proxy import app as app_module
 from proxy.app import create_app
 from proxy.backends import BackendError, NativeBackend, OpenRouterBackend
 from proxy.storage import RequestLog
-from scripts.stats import report
-from tests.test_native import _parts
-from tests.test_translate import cfg, make_wav  # noqa: F401
-
-
-@pytest.mark.parametrize("provider,route_name", [("assemblyai", "assembly"), ("azure", "mai-clean")])
-@pytest.mark.parametrize("request_language,override,expected", [
-    ("de", None, "de"), (None, None, "fr"), ("fr", "en", "en"), ("fr", "en,de", None), ("fr", "", None)])
-def test_native_verbose_response_preserves_resolved_language(cfg, provider, route_name, request_language, override, expected):
-    cfg["language"] = "fr"
-    cfg["notifications"]["enabled"] = False
-    cfg["routes"][route_name]["backend"] = "native"
-    field = "language_codes" if provider == "assemblyai" else "locales"
-    if override is not None:
-        cfg["routes"][route_name]["native"].setdefault("body", {})[field] = (
-            override if provider == "assemblyai" else override.split(",") if override else [])
-    seen = {}
-
-    def handler(request):
-        parts = _parts(request)
-        payload = json.loads(parts["config" if provider == "assemblyai" else "definition"][1])
-        seen["language"] = payload[field]
-        data = {"text": "Zyntrabox"} if provider == "assemblyai" else {"combinedPhrases": [{"text": "Zyntrabox"}]}
-        return httpx.Response(200, json=data)
-
-    backend = NativeBackend(cfg, {"assemblyai": "synthetic", "azure": "synthetic", "azure_region": "Zyntrabox"},
-                            transport=httpx.MockTransport(handler))
-    fields = {"model": route_name, "response_format": "verbose_json"}
-    if request_language is not None:
-        fields["language"] = request_language
-    with TestClient(create_app(cfg, backends={"native": backend}), base_url="http://127.0.0.1:18765") as client:
-        response = client.post("/v1/audio/transcriptions", data=fields,
-                               files={"file": ("synthetic.wav", make_wav(), "audio/wav")})
-    assert response.status_code == 200
-    upstream_language = override if override is not None else request_language or "fr"
-    assert seen["language"] == (upstream_language if provider == "assemblyai" else upstream_language.split(",") if upstream_language else [])
-    assert response.json()["language"] == expected
+from tests.helpers import make_wav
+import asyncio
+import importlib
+import sys
+"""test_app"""
 
 
 @pytest.mark.parametrize("provider_language,request_language,expected", [("de", "fr", "de"), (None, None, None)])
@@ -105,16 +69,61 @@ def test_server_timing_includes_waited_logging_and_preserves_result(cfg, monkeyp
         assert response.json()["error"]["message"] == "synthetic upstream failure"
     assert response.headers["Server-Timing"] == "db;dur=300.0, handler;dur=325.0"
     assert len(writes) == 1
-    assert writes[0]["total_latency_ms"] == 25.0
+    assert writes[0]["processing_ms"] == 25.0
 
 
-def test_stats_labels_legacy_total_as_pre_log_processing(tmp_path, capsys):
-    with closing(RequestLog(str(tmp_path / "synthetic.sqlite"))) as db:
-        db.insert({"ts": "2026-01-01T00:00:00", "route": "gpt", "backend": "openrouter",
-                   "provider_model": "synthetic", "status": "ok", "total_latency_ms": 25})
-        rows = db.rows_since()
-    report(rows, {}, None, 0)
-    output = capsys.readouterr().out
-    assert "pre-log p50" in output and "pre-log p90" in output
-    assert "excludes the SQLite write and response delivery" in output
-    assert "total p50" not in output
+@pytest.mark.parametrize("headers", [
+    {"origin": "https://example.invalid"}, {"origin": "null"},
+    {"host": "example.invalid:18765"}, {"host": "localhost:9"}, {"host": "localhost"},
+])
+def test_reject_browser_and_rebinding_requests(cfg, headers):
+    cfg["server"]["port"] = 18765
+    with TestClient(create_app(cfg, backends={}), base_url="http://127.0.0.1:18765") as c:
+        response = c.get("/v1/models", headers=headers)
+        assert response.status_code == 403
+        assert response.json()["error"]["type"] == "invalid_request_error"
+
+
+def setup(cfg, provider, data):
+    transport = httpx.MockTransport(lambda r: httpx.Response(200, json=data))
+    if provider == "openrouter":
+        return OpenRouterBackend(cfg, "k", transport), cfg["routes"]["gpt"]
+    return NativeBackend(cfg, {"assemblyai": "k", "azure": "k", "azure_region": "Zyntrabox"}, transport), {
+        "native": {"provider": provider, "body": {}}}
+
+
+@pytest.mark.parametrize("provider", ["openrouter", "assemblyai", "azure"])
+@pytest.mark.parametrize("data", [{}, {"error": {"message": "Zyntrabox"}}, {"text": None}])
+def test_missing_transcript_is_failure(cfg, provider, data):
+    async def run():
+        backend, route = setup(cfg, provider, data)
+        try:
+            with pytest.raises(BackendError) as exc:
+                await backend.transcribe(b"audio", "wav", route, "en")
+            assert exc.value.status == 502
+        finally:
+            await backend.aclose()
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("provider", ["openrouter", "assemblyai", "azure"])
+def test_explicit_silence_is_valid(cfg, provider):
+    async def run():
+        data = {"combinedPhrases": []} if provider == "azure" else {"text": ""}
+        backend, route = setup(cfg, provider, data)
+        try:
+            assert (await backend.transcribe(b"audio", "wav", route, "en"))["text"] == ""
+        finally:
+            await backend.aclose()
+    asyncio.run(run())
+
+
+def test_bad_startup_config_is_logged(tmp_path, monkeypatch):
+    startup = importlib.import_module("proxy.__main__")
+    monkeypatch.setattr(startup, "ROOT", tmp_path)
+    path = tmp_path / "Zyntrabox.yaml"
+    path.write_text("logging: {}")
+    monkeypatch.setattr(sys, "argv", ["proxy", "--config", str(path)])
+    with pytest.raises(ValueError):
+        startup.main()
+    assert "fatal startup error" in (tmp_path / "data" / "proxy.log").read_text()

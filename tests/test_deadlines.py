@@ -4,7 +4,6 @@ import httpx
 import pytest
 
 from proxy.backends import BackendError, _request
-from tests.test_translate import cfg  # noqa: F401
 
 
 class SlowBody(httpx.AsyncByteStream):

@@ -12,7 +12,7 @@ from proxy.retention import cleanup
 from proxy.storage import RequestLog
 from proxy.usage import assemblyai_credit, credit_estimate
 from scripts import stats
-from tests.test_translate import cfg  # noqa: F401
+from proxy.usage import read_calibration
 
 CREDIT = {"credit": {"assemblyai_hourly_rate_usd": 0.45, "assemblyai_starting_credit_usd": 50}}
 OLD, NEW = "2000-01-01T00:00:00.000", "2999-01-01T00:00:00.000"
@@ -162,7 +162,7 @@ def test_stats_calibration_flags(tmp_path, monkeypatch, capsys):
     assert "calibration cleared" in out and "estimated remaining $50.0000 (from starting credit" in out
 
 
-def test_low_assemblyai_estimate_notifies(cfg):  # noqa: F811
+def test_low_assemblyai_estimate_notifies(cfg):
     cfg["credit"] = {"enabled": True, "interval_s": 0.02, "low_usd": 1,
                      "assemblyai_hourly_rate_usd": 0.45, "assemblyai_starting_credit_usd": 1.2}
     db = RequestLog(cfg["logging"]["db_path"])
@@ -177,7 +177,7 @@ def test_low_assemblyai_estimate_notifies(cfg):  # noqa: F811
     assert len(sent) == 1 and "Estimated AssemblyAI credit is low" in sent[0][0] and "$0.75" in sent[0][1]
 
 
-def test_no_assemblyai_estimate_warning_when_route_is_on_openrouter(cfg):  # noqa: F811
+def test_no_assemblyai_estimate_warning_when_route_is_on_openrouter(cfg):
     cfg["routes"]["assembly"]["backend"] = "openrouter"
     cfg["credit"] = {"enabled": True, "interval_s": 0.02, "low_usd": 1,
                      "assemblyai_hourly_rate_usd": 0.45, "assemblyai_starting_credit_usd": 0}
@@ -204,3 +204,26 @@ def test_assemblyai_credit_pure():
     out = assemblyai_credit(totals, CREDIT, {"balance_usd": 10, "tracked_seconds": 3600, "at": "t"})
     assert out["remaining_usd"] == pytest.approx(9.55) and out["used_usd"] == pytest.approx(0.9)
     assert json.dumps(out)
+
+
+@pytest.mark.parametrize("balance", ["nan", "inf", "-inf"])
+def test_calibration_rejects_nonfinite_input_before_opening_db(monkeypatch, balance):
+    monkeypatch.setattr(stats, "load_config", lambda: pytest.fail("invalid input reached the database"))
+    monkeypatch.setattr(sys, "argv", ["stats", f"--calibrate-balance={balance}"])
+    with pytest.raises(SystemExit) as error:
+        stats.main()
+    assert error.value.code == 2
+
+
+@pytest.mark.parametrize("value", [
+    {"balance_usd": float("nan"), "tracked_seconds": 0, "at": "2026-01-01"},
+    {"balance_usd": 10, "tracked_seconds": -1, "at": "2026-01-01"},
+    {"balance_usd": 10, "tracked_seconds": float("inf"), "at": "2026-01-01"},
+])
+def test_invalid_saved_calibration_is_ignored(tmp_path, value):
+    db = RequestLog(str(tmp_path / "Zyntrabox.sqlite"))
+    try:
+        db.set_meta("assemblyai_calibration", json.dumps(value))
+        assert read_calibration(db) is None
+    finally:
+        db.close()

@@ -219,7 +219,7 @@ def cmd_remove(args):
         sys.exit(f"{path.name} does not exist")
     drop = {t.strip().lower() for t in args.terms}
     lines = path.read_text(encoding="utf-8").splitlines()
-    kept = [l for l in lines if l.split("#", 1)[0].strip().lower() not in drop]
+    kept = [line for line in lines if line.split("#", 1)[0].strip().lower() not in drop]
     path.write_text("\n".join(kept) + "\n", encoding="utf-8")
     print(f"removed {len(lines) - len(kept)} term(s) from {path.name}")
 

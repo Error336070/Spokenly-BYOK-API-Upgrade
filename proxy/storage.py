@@ -21,7 +21,7 @@ _COLUMNS = [
     ("provider_latency_ms", "REAL"),   # our request to the provider, upload + processing + response
     ("or_latency_ms", "REAL"),         # OpenRouter-reported latency (filled in shortly after the request)
     ("or_provider", "TEXT"),           # provider OpenRouter actually routed to
-    ("total_latency_ms", "REAL"),      # legacy name: processing before the SQLite write, not response delivery
+    ("processing_ms", "REAL"),         # processing before the SQLite write, excluding response delivery
     ("new_connection", "INTEGER"),    # NULL when the transport exposes no trace events
     ("cost", "REAL"),                  # billed cost the provider reported (OpenRouter usage.cost)
     ("estimated_cost", "REAL"),        # our estimate from duration x configured rate; never a billed figure
@@ -81,9 +81,14 @@ class RequestLog:
             cols = ", ".join(f"{n} {t}" for n, t in _COLUMNS)
             self._conn.execute(f"CREATE TABLE IF NOT EXISTS requests (id INTEGER PRIMARY KEY AUTOINCREMENT, {cols})")
             existing = {r[1] for r in self._conn.execute("PRAGMA table_info(requests)")}
+            if "total_latency_ms" in existing and "processing_ms" not in existing:
+                # The old name suggested the whole request; it always measured processing before logging.
+                self._conn.execute("ALTER TABLE requests RENAME COLUMN total_latency_ms TO processing_ms")
+                existing = (existing - {"total_latency_ms"}) | {"processing_ms"}
             for name, typ in _COLUMNS:
                 if name not in existing:
                     self._conn.execute(f"ALTER TABLE requests ADD COLUMN {name} {typ.replace(' NOT NULL', '')}")
+            self._conn.execute("CREATE INDEX IF NOT EXISTS requests_ts ON requests (ts)")
             self._conn.execute(_ROLLUP)
             self._conn.execute("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)")
             # Set once: the oldest row still present when totals started. Older deleted history is not recoverable.
@@ -122,7 +127,10 @@ class RequestLog:
             conn = self._db()
             with conn:  # commits both statements, or rolls both back
                 conn.execute(_ROLL_UP_BEFORE, (ts,))
-                return conn.execute("DELETE FROM requests WHERE ts < ?", (ts,)).rowcount
+                deleted = conn.execute("DELETE FROM requests WHERE ts < ?", (ts,)).rowcount
+            # The connection stays open for the proxy's lifetime, so the WAL file never shrinks on its own.
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            return deleted
 
     def rows_since(self, ts: str = "") -> list[dict]:
         with self._lock:

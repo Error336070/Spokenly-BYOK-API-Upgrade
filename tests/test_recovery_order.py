@@ -8,7 +8,7 @@ import pytest
 
 from proxy import failed
 from scripts import retry
-from tests.test_translate import cfg, make_wav  # noqa: F401
+from tests.helpers import make_wav
 
 METADATA = {"route": "gpt", "language": "en"}
 
@@ -30,7 +30,7 @@ def test_each_failure_starts_a_new_generation(tmp_path):
     assert failed.read_sidecar(path)["generation"] == 2
 
 
-def test_newer_failure_during_successful_retry_stays_pending(cfg, tmp_path, capsys):  # noqa: F811
+def test_newer_failure_during_successful_retry_stays_pending(cfg, tmp_path, capsys):
     cfg["logging"]["failed_clips_dir"] = str(tmp_path)
     path = save(tmp_path)
 
@@ -55,7 +55,7 @@ def test_newer_failure_during_successful_retry_stays_pending(cfg, tmp_path, caps
     assert retry.pending(tmp_path) == []
 
 
-def test_failure_saved_while_retry_reads_its_response_stays_pending(cfg, tmp_path, monkeypatch):  # noqa: F811
+def test_failure_saved_while_retry_reads_its_response_stays_pending(cfg, tmp_path, monkeypatch):
     path = save(tmp_path)
     reading, release = threading.Event(), threading.Event()
     original_json = httpx.Response.json
@@ -84,7 +84,7 @@ def test_failure_saved_while_retry_reads_its_response_stays_pending(cfg, tmp_pat
     assert retry.pending(tmp_path) == [(path, metadata)]
 
 
-def test_stale_retry_error_is_not_recorded_on_a_newer_failure(cfg, tmp_path):  # noqa: F811
+def test_stale_retry_error_is_not_recorded_on_a_newer_failure(cfg, tmp_path):
     path = save(tmp_path)
 
     def handler(request):
@@ -159,3 +159,34 @@ def test_newer_failure_from_another_process_blocks_stale_recovery(tmp_path):
     worker.join(25)
     assert worker.exitcode == 0
     assert failed.read_sidecar(path)["status"] == "recovered"
+
+
+def _update_from_another_process(directory, gate):
+    gate.wait(15)
+    directory = Path(directory)
+    for _ in range(10):
+        path = failed.save(directory, make_wav(), "wav", {"route": "gpt", "language": "en"})
+        failed.record_retry(path, "HTTP 502", started_generation=failed.read_sidecar(path)["generation"])
+
+
+def test_proxy_and_retry_processes_preserve_all_updates(tmp_path):
+    path = failed.save(tmp_path, make_wav(), "wav", {"route": "gpt", "language": "en"})
+    context = multiprocessing.get_context("spawn")
+    gate = context.Barrier(4)
+    workers = [context.Process(target=_update_from_another_process, args=(str(tmp_path), gate)) for _ in range(4)]
+    try:
+        for worker in workers:
+            worker.start()
+        for worker in workers:
+            worker.join(25)
+        assert [worker.exitcode for worker in workers] == [0] * 4
+        assert failed.clips(tmp_path) == [path]
+        metadata = failed.read_sidecar(path)
+        assert metadata["failures"] == 41
+        assert metadata["retries"] == 40
+        assert metadata["status"] == "pending"
+    finally:
+        for worker in workers:
+            if worker.is_alive():
+                worker.terminate()
+                worker.join(5)

@@ -7,7 +7,7 @@ import time
 
 import httpx
 
-from .translate import (build_native_payload, build_openrouter_body, build_openrouter_options,
+from .translate import (ASSEMBLYAI_DEFAULT_MODEL, build_native_payload, build_openrouter_body, build_openrouter_options,
                         openrouter_form_fields, parse_assemblyai_response, parse_azure_response,
                         parse_openrouter_response, parse_generation_response)
 
@@ -64,17 +64,8 @@ def _parse(parser, data, label, connection_info):
 
 
 async def _within_deadline(awaitable, seconds):
-    # asyncio.wait_for can lose external cancellation on Python 3.10 when the request finishes at once.
-    task = asyncio.create_task(awaitable)
-    try:
-        done, _ = await asyncio.wait({task}, timeout=seconds)
-        if not done:
-            raise asyncio.TimeoutError()
-        return task.result()
-    finally:
-        if not task.done():
-            task.cancel()
-        await asyncio.gather(task, return_exceptions=True)
+    async with asyncio.timeout(seconds):
+        return await awaitable
 
 
 async def _request(client: httpx.AsyncClient, label: str, cfg: dict, hints: dict, method: str, url: str, audio_duration_s: float | None = None, connection_info: dict | None = None, **kw):
@@ -161,9 +152,12 @@ class OpenRouterBackend:
         out["language"] = out.get("language") or body.get("language") or None
         out["new_connection"] = connection_info.get("new_connection")
         out["provider_latency_ms"] = latency
-        out["provider_model"] = body["model"]
+        out["provider_model"] = self.provider_model(route)
         out["generation_id"] = headers.get("x-generation-id")
         return out
+
+    def provider_model(self, route: dict) -> str:
+        return route["openrouter"]["model"]
 
     def readiness(self, route: dict) -> tuple[bool, str | None]:
         """From the key this client started with; .env edits need a restart. Never includes the key."""
@@ -216,6 +210,15 @@ class NativeBackend:
         return self.keys.get("azure_endpoint") or (
             f"https://{self.keys['azure_region']}.api.cognitive.microsoft.com" if self.keys.get("azure_region") else "")
 
+    def provider_model(self, route: dict) -> str | None:
+        """The model a native route calls, as "provider/model"; None for an unknown provider."""
+        native = route.get("native") or {}
+        if native.get("provider") == "assemblyai":
+            return "assemblyai/" + native.get("model", ASSEMBLYAI_DEFAULT_MODEL)
+        if native.get("provider") == "azure":
+            return "azure/" + ((native.get("body") or {}).get("enhancedMode") or {}).get("model", "azure-speech")
+        return None
+
     def readiness(self, route: dict) -> tuple[bool, str | None]:
         """From the keys this backend started with; .env edits need a restart. Never includes key values."""
         provider = (route.get("native") or {}).get("provider")
@@ -262,7 +265,7 @@ class NativeBackend:
         if not key:
             raise BackendError("ASSEMBLYAI_API_KEY is not set in the proxy's .env file", 500)
         s = self._settings("assemblyai", cfg)
-        model = n.get("model", "universal-3-5-pro")
+        model = n.get("model", ASSEMBLYAI_DEFAULT_MODEL)
         if language:
             config.setdefault("language_codes", language)
         connection_info = {}
@@ -311,7 +314,7 @@ class NativeBackend:
                 await self._client("assemblyai").get(
                     self._settings("assemblyai").get("base_url", "https://sync.eu.assemblyai.com").rstrip("/")
                     + "/v1/warm", headers={"Authorization": self.keys["assemblyai"],
-                                           "X-AAI-Model": native[0].get("model", "universal-3-5-pro")}, timeout=5)
+                                           "X-AAI-Model": native[0].get("model", ASSEMBLYAI_DEFAULT_MODEL)}, timeout=5)
             except httpx.HTTPError:
                 pass
 

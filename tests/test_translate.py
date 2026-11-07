@@ -1,9 +1,6 @@
 import base64
-import io
 import json
-import struct
 import time
-import wave
 from contextlib import closing
 
 import httpx
@@ -13,34 +10,12 @@ from fastapi.testclient import TestClient
 from proxy.app import create_app
 from proxy.audio import sniff_format, wav_info
 from proxy.backends import OpenRouterBackend
-from proxy.config import ROOT
 from proxy.translate import build_openrouter_body, format_response, trim_vocab
 
-import yaml
+from tests.helpers import make_wav
+import asyncio
 
 
-def make_wav(seconds=1.0, rate=16000) -> bytes:
-    buf = io.BytesIO()
-    with wave.open(buf, "wb") as w:
-        w.setnchannels(1)
-        w.setsampwidth(2)
-        w.setframerate(rate)
-        w.writeframes(struct.pack("<h", 0) * int(seconds * rate))
-    return buf.getvalue()
-
-
-@pytest.fixture
-def cfg(tmp_path):
-    with open(ROOT / "config.yaml", encoding="utf-8") as f:
-        c = yaml.safe_load(f)
-    c["credit"] = {"enabled": False}
-    c["server"]["port"] = 18765
-    c["logging"].update(db_path=str(tmp_path / "db.sqlite"), clips_dir=str(tmp_path / "clips"))
-    c["logging"]["failed_clips_dir"] = str(tmp_path / "failed")
-    # these tests inspect the JSON/WAV request shape; test_upload.py covers FLAC + multipart
-    c["openrouter"]["multipart"] = False
-    c["upload"] = {"flac": False}
-    return c
 
 
 def test_sniff_and_wav_info():
@@ -217,3 +192,16 @@ def test_storage_migrates_old_schema(tmp_path):
         rid = db.insert({"ts": "x", "or_provider": "Azure"})
         db.update(rid, or_latency_ms=5)
         assert db._conn.execute("SELECT or_provider, or_latency_ms FROM requests").fetchone() == ("Azure", 5)
+
+
+@pytest.mark.parametrize("data", [[], {"data": []}, {"data": "Zyntrabox"},
+                                 {"data": {"latency": "fast", "provider_name": []}}])
+def test_generation_ignores_bad_optional_diagnostics(cfg, data):
+    async def run():
+        backend = OpenRouterBackend(cfg, "k", httpx.MockTransport(lambda r: httpx.Response(200, json=data)))
+        try:
+            result = await backend.generation("Zyntrabox")
+            assert result is None or result == {"latency": None, "provider_name": None}
+        finally:
+            await backend.aclose()
+    asyncio.run(run())

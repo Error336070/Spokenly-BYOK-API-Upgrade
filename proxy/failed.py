@@ -19,7 +19,7 @@ _lock = threading.Lock()
 LOCK_FILENAME = ".recovery.lock"
 
 
-def _valid_retry_attempt(value) -> bool:
+def valid_retry_attempt(value) -> bool:
     return (isinstance(value, str) and len(value) == 32
             and all(char in "0123456789abcdef" for char in value))
 
@@ -75,7 +75,7 @@ def _read_sidecar(path: Path) -> dict | None:
         return None
     if data.get("language") is not None and not isinstance(data["language"], str):
         return None
-    if "last_retry_attempt" in data and not _valid_retry_attempt(data["last_retry_attempt"]):
+    if "last_retry_attempt" in data and not valid_retry_attempt(data["last_retry_attempt"]):
         return None
     for key in ("failures", "retries", "generation"):
         if key in data and (type(data[key]) is not int or data[key] < 0):
@@ -115,7 +115,7 @@ def record_retry(path: Path, error: str | None, *, started_generation: int,
     is an error from the failure that the proxy saved for this exact retry attempt. A failed attempt also does not
     reopen a generation that another retry has already recovered.
     """
-    if attempt_id is not None and not _valid_retry_attempt(attempt_id):
+    if attempt_id is not None and not valid_retry_attempt(attempt_id):
         raise ValueError("the retry attempt id is invalid")
     now = datetime.now().isoformat(timespec="seconds")
     with directory_lock(path.parent):
@@ -160,7 +160,7 @@ def save(directory: Path, audio: bytes, fmt: str, metadata: dict) -> Path:
     """Save a failed clip, or reuse the file already holding the same bytes. Returns its path."""
     now = datetime.now().isoformat(timespec="seconds")
     retry_attempt = metadata.get("retry_attempt")
-    if retry_attempt is not None and not _valid_retry_attempt(retry_attempt):
+    if retry_attempt is not None and not valid_retry_attempt(retry_attempt):
         raise ValueError("the retry attempt id is invalid")
     stored_metadata = {key: value for key, value in metadata.items() if key != "retry_attempt"}
     with directory_lock(directory):

@@ -1,4 +1,3 @@
-import asyncio
 import os
 import sqlite3
 import threading
@@ -11,7 +10,7 @@ from fastapi.testclient import TestClient
 from proxy.app import create_app
 from proxy.backends import OpenRouterBackend
 from proxy.storage import RequestLog
-from tests.test_translate import cfg, make_wav  # noqa: F401
+from tests.helpers import make_wav
 
 
 def _files(path):

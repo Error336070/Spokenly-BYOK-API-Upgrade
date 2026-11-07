@@ -2,6 +2,8 @@ from scripts.stats import main, usage_summary
 from contextlib import closing
 from proxy.storage import RequestLog
 import pytest
+from scripts.stats import report
+from scripts import stats
 
 
 def test_usage_cost_coverage_and_native_credit_estimate():
@@ -51,3 +53,29 @@ def test_native_diagnostics_section():
     assert "server p50   200 ms" in out and "outside server p50   300 ms" in out
     assert "est $/req  0.00100" in out and "Zyntrabox-1" in out and "not a billed cost" in out
     assert native_diagnostics([{**base, "backend": "openrouter"}]) == ""
+
+
+def test_stats_labels_legacy_total_as_pre_log_processing(tmp_path, capsys):
+    with closing(RequestLog(str(tmp_path / "synthetic.sqlite"))) as db:
+        db.insert({"ts": "2026-01-01T00:00:00", "route": "gpt", "backend": "openrouter",
+                   "provider_model": "synthetic", "status": "ok", "processing_ms": 25})
+        rows = db.rows_since()
+    report(rows, {}, None, 0)
+    output = capsys.readouterr().out
+    assert "pre-log p50" in output and "pre-log p90" in output
+    assert "excludes the SQLite write and response delivery" in output
+    assert "total p50" not in output
+
+
+def test_stats_sorts_concurrent_requests_by_start(tmp_path, capsys):
+    db = RequestLog(str(tmp_path / "requests.sqlite"))
+    try:
+        for second in (10, 0, 20):  # completion order differs from start order
+            db.insert({"ts": f"2026-01-01T00:00:{second:02}", "route": "gpt", "backend": "openrouter",
+                       "provider_model": "test", "status": "ok"})
+        stats.report(db.rows_since(), {}, None, 0)
+    finally:
+        db.close()
+    lines = [line for line in capsys.readouterr().out.splitlines() if "new TCP" in line]
+    assert "00:00:00" in lines[0] and "gap      -" in lines[0]
+    assert "gap    10s" in lines[1] and "gap    10s" in lines[2]

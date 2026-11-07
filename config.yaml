@@ -122,7 +122,8 @@ routes:
       vocab_max: 100
     native:                       # used when backend: native (AssemblyAI Sync API)
       provider: assemblyai
-      model: universal-3-5-pro    # the Sync API documents 3.5 Pro only; OpenRouter serves 3.6 Pro
+      model: universal-3-5-pro    # the only X-AAI-Model value the Sync API documents (checked 2026-11-07);
+                                  # the dashboard's "Universal-3.6 Pro" label is not a valid Sync value
       body: {}                    # the `config` JSON (language_codes is filled from the request)
       vocab_path: keyterms_prompt # max 100 terms / 8000 characters
       vocab_max: 100

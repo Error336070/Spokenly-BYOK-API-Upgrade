@@ -17,3 +17,5 @@ shootout/results/
 __pycache__/
 *.pyc
 .pytest_cache/
+.coverage
+.ruff_cache/

@@ -8,6 +8,7 @@ All Python runs from the project's virtual environment.
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest -q tests                              # run before every commit
+.\.venv\Scripts\python.exe -m ruff check .                                 # lint, also run in CI
 .\.venv\Scripts\python.exe -m proxy                                        # run in a terminal
 powershell -ExecutionPolicy Bypass -File scripts\proxyctl.ps1 restart     # the background copy
 .\.venv\Scripts\python.exe scripts\stats.py                                # latency per route from the log

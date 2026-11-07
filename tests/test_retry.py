@@ -10,7 +10,7 @@ from proxy import failed
 from proxy.app import create_app
 from proxy.backends import OpenRouterBackend
 from scripts import retry
-from tests.test_translate import cfg, make_wav  # noqa: F401
+from tests.helpers import make_wav
 
 
 def saved_clip(tmp_path, route="gpt", audio=None):
@@ -43,7 +43,7 @@ def test_concurrent_saves_of_same_audio_make_one_file(tmp_path):
     assert not [p for p in (tmp_path / "failed").iterdir() if p.name.endswith(".tmp")]
 
 
-def test_success_marks_recovered_and_keeps_audio(cfg, tmp_path):  # noqa: F811
+def test_success_marks_recovered_and_keeps_audio(cfg, tmp_path):
     path = saved_clip(tmp_path)
     seen = []
     with mock_client(lambda r: seen.append(r.content) or httpx.Response(200, json={"text": "Zyntrabox"})) as c:
@@ -59,7 +59,7 @@ def test_success_marks_recovered_and_keeps_audio(cfg, tmp_path):  # noqa: F811
     (httpx.Response(502, json={"error": {"message": "Zyntrabox upstream down"}}), "HTTP 502: Zyntrabox upstream down"),
     (httpx.Response(200, json={"text": "  "}), "empty transcript again"),
 ])
-def test_failed_or_empty_retry_stays_pending(cfg, tmp_path, response, needle):  # noqa: F811
+def test_failed_or_empty_retry_stays_pending(cfg, tmp_path, response, needle):
     path = saved_clip(tmp_path)
     with mock_client(lambda r: response) as c:
         with pytest.raises(retry.RetryError, match=needle):
@@ -69,7 +69,7 @@ def test_failed_or_empty_retry_stays_pending(cfg, tmp_path, response, needle):  
     assert retry.pending(tmp_path / "failed")[0][0] == path
 
 
-def test_removed_route_and_bad_metadata_are_rejected(cfg, tmp_path):  # noqa: F811
+def test_removed_route_and_bad_metadata_are_rejected(cfg, tmp_path):
     path = saved_clip(tmp_path, route="Zyntrabox-removed")
     calls = []
     with mock_client(lambda r: calls.append(r) or httpx.Response(200, json={"text": "x"})) as c:
@@ -84,7 +84,7 @@ def test_removed_route_and_bad_metadata_are_rejected(cfg, tmp_path):  # noqa: F8
     assert calls == []
 
 
-def test_unreachable_proxy_is_a_short_error(cfg, tmp_path):  # noqa: F811
+def test_unreachable_proxy_is_a_short_error(cfg, tmp_path):
     path = saved_clip(tmp_path)
 
     def refuse(request):
@@ -95,7 +95,7 @@ def test_unreachable_proxy_is_a_short_error(cfg, tmp_path):  # noqa: F811
             retry.retry_clip(path, cfg, c)
 
 
-def test_failed_retry_through_proxy_does_not_duplicate_clip(cfg, tmp_path):  # noqa: F811
+def test_failed_retry_through_proxy_does_not_duplicate_clip(cfg, tmp_path):
     cfg["notifications"]["enabled"] = False
     backend = OpenRouterBackend(cfg, "k", transport=httpx.MockTransport(lambda r: httpx.Response(502)))
     with TestClient(create_app(cfg, backends={"openrouter": backend}), base_url="http://127.0.0.1:18765") as c:
@@ -115,7 +115,7 @@ def test_failed_retry_through_proxy_does_not_duplicate_clip(cfg, tmp_path):  # n
         assert path.read_bytes() == make_wav(3)
 
 
-def test_cli_list_and_exit_codes(cfg, tmp_path, monkeypatch, capsys):  # noqa: F811
+def test_cli_list_and_exit_codes(cfg, tmp_path, monkeypatch, capsys):
     cfg["logging"]["failed_clips_dir"] = str(tmp_path / "failed")
     monkeypatch.setattr(retry, "load_config", lambda: cfg)
     assert retry.main([]) == 1
@@ -150,7 +150,7 @@ def test_sidecar_is_valid_json_after_updates(tmp_path):
     assert json.loads(failed.sidecar(path).read_text(encoding="utf-8"))["retries"] == 4
 
 
-def test_default_selection_skips_unreadable_metadata(cfg, tmp_path, monkeypatch, capsys):  # noqa: F811
+def test_default_selection_skips_unreadable_metadata(cfg, tmp_path, monkeypatch, capsys):
     import os
     cfg["logging"]["failed_clips_dir"] = str(tmp_path / "failed")
     monkeypatch.setattr(retry, "load_config", lambda: cfg)
@@ -174,7 +174,7 @@ def test_default_selection_skips_unreadable_metadata(cfg, tmp_path, monkeypatch,
     assert "no pending failed clips with readable metadata" in capsys.readouterr().err
 
 
-def test_cli_uses_the_configured_ipv6_host(cfg, tmp_path, monkeypatch, capsys):  # noqa: F811
+def test_cli_uses_the_configured_ipv6_host(cfg, tmp_path, monkeypatch, capsys):
     cfg["server"].update(host="::1", port=18765)
     cfg["logging"]["failed_clips_dir"] = str(tmp_path / "failed")
     monkeypatch.setattr(retry, "load_config", lambda: cfg)
@@ -200,7 +200,7 @@ def test_cli_uses_the_configured_ipv6_host(cfg, tmp_path, monkeypatch, capsys): 
     assert seen["base_url"] == "http://[::1]:18765"
 
 
-def test_cli_ipv6_bypasses_environment_proxy(cfg, tmp_path, monkeypatch, capsys):  # noqa: F811
+def test_cli_ipv6_bypasses_environment_proxy(cfg, tmp_path, monkeypatch, capsys):
     cfg["server"].update(host="::1", port=18765)
     cfg["logging"]["failed_clips_dir"] = str(tmp_path / "failed")
     monkeypatch.setattr(retry, "load_config", lambda: cfg)
@@ -218,3 +218,21 @@ def test_cli_ipv6_bypasses_environment_proxy(cfg, tmp_path, monkeypatch, capsys)
     assert retry.main([str(path)]) == 0
     assert capsys.readouterr().out.strip() == "Zyntrabox"
     assert connections == ["ConnectionPool"]
+
+
+@pytest.mark.parametrize("value", [None, 3, [], {}])
+def test_malformed_retry_text_is_a_readable_error(cfg, tmp_path, value):
+    path = failed.save(tmp_path, make_wav(), "wav", {"route": "gpt"})
+    with httpx.Client(base_url="http://127.0.0.1:18765", transport=httpx.MockTransport(
+            lambda r: httpx.Response(200, json={"text": value}))) as client:
+        with pytest.raises(retry.RetryError, match="unreadable response"):
+            retry.retry_clip(path, cfg, client)
+    assert failed.read_sidecar(path)["status"] == "pending"
+
+
+@pytest.mark.parametrize("changes", [{"retries": "bad"}, {"failures": -1}, {"status": []}, {"language": []}])
+def test_malformed_sidecar_state_is_not_selected(tmp_path, changes):
+    path = tmp_path / "Zyntrabox.wav"
+    path.write_bytes(make_wav())
+    failed.sidecar(path).write_text(json.dumps({"route": "gpt", **changes}), encoding="utf-8")
+    assert failed.read_sidecar(path) is None

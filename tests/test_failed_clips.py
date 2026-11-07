@@ -10,7 +10,9 @@ from fastapi.testclient import TestClient
 
 from proxy.app import create_app
 from proxy.backends import OpenRouterBackend
-from tests.test_translate import cfg, make_wav  # noqa: F401
+from tests.helpers import make_wav
+from proxy import failed
+from scripts import retry
 
 
 @pytest.mark.parametrize("status,text", [(502, ""), (200, "")])
@@ -51,3 +53,23 @@ def test_malformed_wav_metadata_preserves_failed_audio(cfg):
         assert response.status_code == 502
         path = c.app.state.db._conn.execute("SELECT clip_path FROM requests").fetchone()[0]
         assert Path(path).read_bytes() == audio
+
+
+def test_failed_clip_identity_includes_route_and_language(tmp_path):
+    audio = make_wav()
+    first = failed.save(tmp_path, audio, "wav", {"route": "gpt", "language": "en"})
+    second = failed.save(tmp_path, audio, "wav", {"route": "assembly", "language": "en"})
+    third = failed.save(tmp_path, audio, "wav", {"route": "gpt", "language": "de"})
+    assert len({first, second, third}) == 3
+    assert failed.read_sidecar(second)["route"] == "assembly"
+    assert failed.read_sidecar(third)["language"] == "de"
+
+
+def test_new_failure_reopens_a_recovered_clip(tmp_path):
+    audio = make_wav()
+    metadata = {"route": "gpt", "language": "en"}
+    path = failed.save(tmp_path, audio, "wav", metadata)
+    failed.update_sidecar(path, status="recovered")
+    assert failed.save(tmp_path, audio, "wav", metadata) == path
+    assert retry.pending(tmp_path) == [(path, failed.read_sidecar(path))]
+    assert failed.read_sidecar(path)["status"] == "pending"

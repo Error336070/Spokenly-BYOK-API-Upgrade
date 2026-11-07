@@ -1,0 +1,36 @@
+# Exact versions the tests last passed with on Python 3.13. Use with -c so upgrades are deliberate:
+#   pip install -r requirements-dev.txt -c constraints.txt
+# Refresh after an upgrade with: pip freeze > constraints.txt (then restore this header).
+annotated-doc==0.0.5
+annotated-types==0.8.0
+anyio==4.16.0
+certifi==2026.10.23
+cffi==2.1.1
+click==8.5.1
+colorama==0.4.6
+coverage==7.17.2
+fastapi==0.162.1
+h11==0.16.0
+httpcore==1.0.9
+httpx==0.28.1
+idna==3.20
+iniconfig==2.3.1
+numpy==2.5.4
+opentelemetry-api==1.45.2
+packaging==26.3
+pluggy==1.7.0
+pycparser==3.12
+pydantic==2.14.3
+pydantic_core==2.50.4
+Pygments==2.21.0
+pytest==9.2.0
+pytest-cov==7.1.0
+python-dotenv==1.2.4
+python-multipart==0.0.33
+PyYAML==6.0.3
+ruff==0.17.4
+soundfile==0.14.0
+starlette==1.10.0
+typing-inspection==0.4.5
+typing_extensions==4.16.0
+uvicorn==0.54.0

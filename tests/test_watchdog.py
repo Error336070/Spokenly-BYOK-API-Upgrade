@@ -169,3 +169,42 @@ def test_main_keeps_state_and_skips_bad_config(monkeypatch, tmp_path):
 
     monkeypatch.setattr(watchdog, "load_config", broken)
     assert watchdog.main([]) == 1 and len(seen) == 2
+
+
+def test_stop_marker_is_task_scoped_and_survives_port_changes(tmp_path, monkeypatch):
+    monkeypatch.setattr(watchdog, "ROOT", tmp_path)
+    marker = watchdog.pause_path("Zyntrabox")
+    marker.parent.mkdir(parents=True)
+    marker.touch()
+    calls = []
+    healthy = False
+
+    def recover(action, task):
+        nonlocal healthy
+        calls.append((action, task))
+        healthy = True
+        return True
+
+    monkeypatch.setattr(watchdog, "health", lambda *a: "ok" if healthy else "unreachable")
+    monkeypatch.setattr(watchdog, "task_state", lambda *a: "Ready")
+    monkeypatch.setattr(watchdog, "schtasks", recover)
+    state = {"unhealthy_checks": 5}
+    assert watchdog.check_once(18777, "zyntrabox", state, 0, host="::1") == "paused"
+    assert calls == [] and state["unhealthy_checks"] == 0
+    assert watchdog.check_once(18778, "OtherTask", {}, 0) == "started"
+    assert calls == [("/Run", "OtherTask")]
+
+
+def test_stop_arriving_during_health_check_prevents_recovery(tmp_path, monkeypatch):
+    monkeypatch.setattr(watchdog, "ROOT", tmp_path)
+    marker = watchdog.pause_path("Zyntrabox")
+    marker.parent.mkdir(parents=True)
+
+    def state(task):
+        marker.touch()
+        return "Ready"
+
+    monkeypatch.setattr(watchdog, "health", lambda *a: "unreachable")
+    monkeypatch.setattr(watchdog, "task_state", state)
+    monkeypatch.setattr(watchdog, "schtasks", lambda *a: pytest.fail("recovery after stop intent"))
+    assert watchdog.check_once(18766, "Zyntrabox", {}, 0) == "paused"

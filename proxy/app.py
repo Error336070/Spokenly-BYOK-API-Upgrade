@@ -1,6 +1,7 @@
 """FastAPI app: OpenAI-compatible /v1/audio/transcriptions in front of STT providers."""
 import asyncio
 import copy
+import hmac
 import json
 import logging
 import time
@@ -10,6 +11,7 @@ from datetime import datetime
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
+import httpx
 from fastapi.responses import JSONResponse, Response
 
 from . import failed as failed_clips
@@ -23,7 +25,10 @@ from .translate import format_response
 from .usage import credit_estimate, estimated_cost, has_native_assemblyai_route
 
 log = logging.getLogger("proxy")
-_REDACT = {"authorization", "x-api-key", "api-key", "cookie"}
+_REDACT = {"authorization", "proxy-authorization", "x-api-key", "api-key", "cookie",
+           "ocp-apim-subscription-key"}
+# A credit check that cannot reach OpenRouter (network not up yet after logon or wake) retries this soon.
+CREDIT_RETRY_S = 300
 
 
 def error_response(status: int, message: str, kind: str) -> JSONResponse:
@@ -222,13 +227,23 @@ def create_app(cfg: dict, backends: dict | None = None, config_path: Path | None
     async def check_credit():
         while True:
             settings = cfg.get("credit", {})
+            retry_soon = False
             if settings.get("enabled", True):
                 for check in (check_openrouter_credit, check_assemblyai_estimate):
                     try:
                         await check(settings)
+                    except BackendError as e:
+                        if not isinstance(e.__cause__, httpx.TransportError):
+                            background_failure("check_credit", e)
+                            continue
+                        # Unreachable, not broken: log it and try again soon instead of notifying.
+                        log.warning("credit check could not reach the provider, retrying in %d s: %s",
+                                    CREDIT_RETRY_S, e)
+                        retry_soon = True
                     except Exception as e:
                         background_failure("check_credit", e)
-            await asyncio.sleep(cfg.get("credit", {}).get("interval_s", 14400))
+            interval = cfg.get("credit", {}).get("interval_s", 14400)
+            await asyncio.sleep(min(interval, CREDIT_RETRY_S) if retry_soon else interval)
 
     @asynccontextmanager
     async def lifespan(app):
@@ -277,7 +292,7 @@ def create_app(cfg: dict, backends: dict | None = None, config_path: Path | None
         if not expected:
             return
         got = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
-        if got != expected:
+        if not hmac.compare_digest(got.encode(), expected.encode()):
             raise HTTPException(401, "invalid API key for Dictation Proxy")
 
     async def fetch_generation_stats(backend, row_id: int, gen_id: str, settings):
@@ -331,7 +346,7 @@ def create_app(cfg: dict, backends: dict | None = None, config_path: Path | None
         state["last_request"] = time.monotonic()
 
         retry_attempt = fields.pop("_dictation_proxy_retry", "").lower()
-        if len(retry_attempt) != 32 or any(char not in "0123456789abcdef" for char in retry_attempt):
+        if not failed_clips.valid_retry_attempt(retry_attempt):
             retry_attempt = None
 
         requested = str(fields.get("model") or "")
@@ -367,17 +382,9 @@ def create_app(cfg: dict, backends: dict | None = None, config_path: Path | None
             "clip_path": str(clip_path) if clip_path else None,
             "details": json.dumps(details) if details else None,
         }
-        if route["backend"] == "openrouter":
-            row["provider_model"] = route["openrouter"]["model"]
-        else:
-            native = route.get("native", {})
-            if native.get("provider") == "assemblyai":
-                row["provider_model"] = "assemblyai/" + native.get("model", "universal-3-5-pro")
-            elif native.get("provider") == "azure":
-                mode = native.get("body", {}).get("enhancedMode", {})
-                row["provider_model"] = f"azure/{mode.get('model', 'azure-speech')}"
-
         backend = app.state.backends.get(route["backend"])
+        if hasattr(backend, "provider_model"):
+            row["provider_model"] = backend.provider_model(route)
         failed_metadata = {"route": route_name, "language": language}
         if retry_attempt is not None:
             failed_metadata["retry_attempt"] = retry_attempt
@@ -395,14 +402,14 @@ def create_app(cfg: dict, backends: dict | None = None, config_path: Path | None
                 log.exception("unexpected error in route %s", route_name)
                 e = BackendError(f"Dictation Proxy internal error: {type(e).__name__}: {e}", 500, repr(e))
             row["clip_path"] = await save_clip(audio, fmt, settings, failed_metadata)
-            row.update(status="error", http_status=e.status, error=e.detail, total_latency_ms=_ms(t0),
+            row.update(status="error", http_status=e.status, error=e.detail, processing_ms=_ms(t0),
                        new_connection=e.new_connection)
             t_db = time.perf_counter()
             await db_write(app.state.db.insert, row)
             db_ms = _ms(t_db)
             notifier.error(route_name, str(e), getattr(e, "upstream_status", None), route["backend"])
             log.error("route %s failed after %.0f ms processing, %.0f ms logging: %s | %s",
-                      route_name, row["total_latency_ms"], db_ms, e, e.detail)
+                      route_name, row["processing_ms"], db_ms, e, e.detail)
             kind = {504: "timeout", 501: "not_implemented", 500: "internal_error"}.get(e.status, "upstream_error")
             return _timed_response(error_response(e.status, str(e), kind), t0, db_ms)
 
@@ -417,14 +424,14 @@ def create_app(cfg: dict, backends: dict | None = None, config_path: Path | None
         )
         if not result["text"] and (duration or 0) > 2:
             row["clip_path"] = await save_clip(audio, fmt, settings, failed_metadata)
-        row["total_latency_ms"] = _ms(t0)
+        row["processing_ms"] = _ms(t0)
         t_db = time.perf_counter()
         row_id = await db_write(app.state.db.insert, row)
         db_ms = _ms(t_db)
         notifier.success()
         log.info("%s/%s %.1fs audio, read %.0f ms, provider %.0f ms, processing %.0f ms, logging %.0f ms, cost %s: %s",
                  route_name, route["backend"], duration or 0, upload_read_ms, row["provider_latency_ms"],
-                 row["total_latency_ms"], db_ms, row["cost"], result["text"][:120])
+                 row["processing_ms"], db_ms, row["cost"], result["text"][:120])
 
         if row_id is not None and row["generation_id"] and hasattr(backend, "generation"):
             spawn(fetch_generation_stats(backend, row_id, row["generation_id"], settings))

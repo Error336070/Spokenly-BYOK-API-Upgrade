@@ -11,7 +11,7 @@ from proxy.app import create_app
 from proxy.audio import prepare_upload, to_flac
 from proxy.backends import OpenRouterBackend
 from tests.test_native import _parts
-from tests.test_translate import cfg, make_wav  # noqa: F401  (fixture)
+from tests.helpers import make_wav
 
 
 def test_flac_is_lossless_and_smaller():
@@ -45,7 +45,7 @@ def test_prepare_upload_switch_and_fallback():
     assert prepare_upload(b"RIFFbroken", "wav", {}) == (b"RIFFbroken", "wav")  # encode failure: send as-is
 
 
-def test_openrouter_multipart_flac_end_to_end(cfg):  # noqa: F811
+def test_openrouter_multipart_flac_end_to_end(cfg):
     cfg["openrouter"]["multipart"] = True
     cfg["upload"] = {"flac": True}
     cfg["vocabulary"] = ["Zyntrabox"]

@@ -164,13 +164,12 @@ def report(rows, cfg, estimate, errors_shown):
               f"{fmt(pct([r['provider_latency_ms'] for r in ok], 90)):>8} "
               f"{fmt(pct([r['or_latency_ms'] for r in ok], 50)):>7} "
               f"{fmt(pct(overhead, 50)):>8} "
-              f"{fmt(pct([r['total_latency_ms'] for r in ok], 50)):>11} "
-              f"{fmt(pct([r['total_latency_ms'] for r in ok], 90)):>11} "
+              f"{fmt(pct([r['processing_ms'] for r in ok], 50)):>11} "
+              f"{fmt(pct([r['processing_ms'] for r in ok], 90)):>11} "
               f"{('$%.5f' % statistics.mean(costs)) if costs else '-':>9}  {', '.join(providers)}")
     print("\nprov = provider round trip (upload + processing); OR = OpenRouter-reported latency;")
     print("overhead = prov - OR (network/upload/routing outside the model). All in ms.")
-    print("pre-log = processing before request logging; excludes the SQLite write and response delivery. "
-          "Stored under the legacy total_latency_ms column.")
+    print("pre-log = processing before request logging; excludes the SQLite write and response delivery.")
 
     print("\nRecent provider requests, with seconds since the previous request start in that backend/provider:")
     previous, connections = {}, []

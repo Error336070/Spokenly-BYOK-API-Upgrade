@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.10+-5A4E40?style=flat-square&labelColor=211C18&logo=python&logoColor=white" alt="Python 3.10+"></a>
+  <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.12+-5A4E40?style=flat-square&labelColor=211C18&logo=python&logoColor=white" alt="Python 3.10+"></a>
   <a href="https://fastapi.tiangolo.com/"><img src="https://img.shields.io/badge/FastAPI-local_proxy-5A4E40?style=flat-square&labelColor=211C18&logo=fastapi&logoColor=white" alt="FastAPI"></a>
   <a href="#run-it-in-the-background"><img src="https://img.shields.io/badge/Windows-10_and_11-5A4E40?style=flat-square&labelColor=211C18&logo=windows11&logoColor=white" alt="Windows 10 and 11"></a>
   <a href="#connect-spokenly"><img src="https://img.shields.io/badge/API-OpenAI_compatible-5A4E40?style=flat-square&labelColor=211C18&logo=openai&logoColor=white" alt="OpenAI-compatible API"></a>
@@ -47,14 +47,14 @@ On my own dictation, short commands come back in about 200 ms. Before the upload
 
 ## Quick start
 
-You need Windows 10 or 11, Python 3.10 or newer, Spokenly, and an API key from [OpenRouter](https://openrouter.ai) or [AssemblyAI](https://www.assemblyai.com).
+You need Windows 10 or 11, Python 3.12 or newer, Spokenly, and an API key from [OpenRouter](https://openrouter.ai) or [AssemblyAI](https://www.assemblyai.com).
 
 ```powershell
 git clone https://github.com/Error336070/Spokenly-BYOK-API-Upgrade.git
 cd Spokenly-BYOK-API-Upgrade
 
 python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt -c constraints.txt
 
 copy .env.example .env                       # then add your API key
 copy vocabulary.example.txt vocabulary.txt   # then add the words models get wrong
@@ -90,7 +90,7 @@ Add a custom OpenAI-compatible transcription provider in Spokenly with these val
 4. The transcript goes back to Spokenly in the format it asked for. The proxy supports `json`, `text`, `verbose_json`, `srt` and `vtt`.
 5. The proxy logs the request in a worker thread. If the log write fails, Spokenly still gets the transcript. For OpenRouter requests it also fetches OpenRouter's own latency figure in the background, so you can separate model time from network time.
 
-The request log's historical `total_latency_ms` column measures processing before the SQLite write. `stats.py` labels it `pre-log` to make that boundary clear. Successful transcriptions and handled provider errors also return `Server-Timing`: `db` measures the awaited logging call, and `handler` includes it through response construction. Neither measures delivery to Spokenly. For `verbose_json`, language comes from the provider when available, otherwise the single language sent upstream, including native route overrides. An unknown language or multiple candidate languages stay `null`.
+The request log's `processing_ms` column measures processing before the SQLite write. `stats.py` labels it `pre-log`. Logs from older versions called it `total_latency_ms`; the proxy renames it on startup. Successful transcriptions and handled provider errors also return `Server-Timing`: `db` measures the awaited logging call, and `handler` includes it through response construction. Neither measures delivery to Spokenly. For `verbose_json`, language comes from the provider when available, otherwise the single language sent upstream, including native route overrides. An unknown language or multiple candidate languages stay `null`.
 
 ## Benchmarks
 
@@ -336,7 +336,7 @@ docs/             README graphics and the script that draws them
 tests/            translation and end-to-end tests against mocked providers
 ```
 
-Run the tests with `.\.venv\Scripts\python.exe -m pytest -q tests`. Tests use a temporary working directory and config root, ignore `.env` and inherited provider keys, and reject unmocked HTTPX requests. Pull requests run the suite on Windows with Python 3.10 and Linux with Python 3.13. The Windows job also exercises the PowerShell controller with stub commands.
+Install the test tools with `.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt -c constraints.txt`, then run the tests with `.\.venv\Scripts\python.exe -m pytest -q tests` and the linter with `.\.venv\Scripts\python.exe -m ruff check .`. `constraints.txt` holds the exact versions the tests last passed with, so an upgrade happens only when you refresh it. Tests use a temporary working directory and config root, ignore `.env` and inherited provider keys, and reject unmocked HTTPX requests. Pull requests run the linter and the suite with a coverage report on Windows with Python 3.13 and Linux with Python 3.12. The Windows job also exercises the PowerShell controller with stub commands.
 
 To redraw the graphics after changing the numbers in [`docs/build_assets.py`](docs/build_assets.py), run `.\.venv\Scripts\python.exe docs\build_assets.py`.
 
